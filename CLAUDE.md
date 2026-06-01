@@ -38,8 +38,8 @@ MDocs solves this by giving them a CMS-like interface that reads and writes dire
 
 ### Infrastructure
 
-- **Deployed to Vercel** at `m-docs-omega.vercel.app`
-- `NEXTAUTH_URL` is set to `https://m-docs-omega.vercel.app`
+- **Deployed to Vercel** at `usecommit.co` (the `m-docs-omega.vercel.app` Vercel default domain redirects to apex)
+- `NEXTAUTH_URL` is set to `https://usecommit.co`
 - `postinstall` script runs `prisma generate` on every Vercel build (ensures client is generated before app starts)
 - **Database migrations**: use `db push` (not `migrate dev`) for schema changes in this project
 

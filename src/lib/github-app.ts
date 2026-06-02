@@ -75,6 +75,44 @@ export async function getOctokitForRepo(owner: string): Promise<Octokit> {
   return getInstallationOctokit(installationId);
 }
 
+function slugifyPathForBranch(filePath?: string): string | null {
+  if (!filePath) return null;
+
+  const withoutExt = filePath.replace(/\.(md|mdx)$/i, "");
+
+  const segments = withoutExt
+    .split("/")
+    .map((segment) =>
+      segment
+        .toLowerCase()
+        .replace(/[^a-z0-9_-]+/g, "-")
+        .replace(/-+/g, "-")
+        .replace(/^-+|-+$/g, "")
+    )
+    .filter((segment) => segment.length > 0);
+
+  if (segments.length === 0) return null;
+  return segments.join("/");
+}
+
+async function findAvailableBranchName(
+  octokit: Octokit,
+  owner: string,
+  repo: string,
+  desiredBase: string
+): Promise<string> {
+  const MAX_ATTEMPTS = 50;
+  for (let i = 0; i < MAX_ATTEMPTS; i++) {
+    const candidate = i === 0 ? desiredBase : `${desiredBase}-${i + 1}`;
+    try {
+      await octokit.rest.git.getRef({ owner, repo, ref: `heads/${candidate}` });
+    } catch {
+      return candidate;
+    }
+  }
+  return `${desiredBase}-${Date.now().toString(36)}`;
+}
+
 /**
  * Resolve the user's active draft branch for (owner, repo), creating one if needed.
  * Reuses an existing draft branch when it still exists on GitHub and has no open PR.
@@ -85,8 +123,9 @@ export async function getOrCreateDraftBranch(params: {
   owner: string;
   repo: string;
   githubLogin: string;
+  filePath?: string;
 }): Promise<{ branch: string; baseBranch: string }> {
-  const { userId, owner, repo, githubLogin } = params;
+  const { userId, owner, repo, githubLogin, filePath } = params;
   const octokit = await getOctokitForRepo(owner);
 
   const settings = await prisma.repoSettings.findUnique({
@@ -136,7 +175,11 @@ export async function getOrCreateDraftBranch(params: {
   });
 
   const safeLogin = (githubLogin || "user").toLowerCase().replace(/[^a-z0-9-]/g, "-");
-  const branch = `commit/${safeLogin}/draft-${Date.now().toString(36)}`;
+  const slug = slugifyPathForBranch(filePath);
+  const desiredBase = slug
+    ? `commit/${safeLogin}/${slug}`
+    : `commit/${safeLogin}/draft-${Date.now().toString(36)}`;
+  const branch = await findAvailableBranchName(octokit, owner, repo, desiredBase);
 
   await octokit.rest.git.createRef({
     owner,

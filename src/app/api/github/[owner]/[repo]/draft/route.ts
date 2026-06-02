@@ -65,12 +65,28 @@ export async function GET(
     const files = (compare.files ?? []).map((f) => ({
       path: f.filename,
       status: f.status as DraftFileStatus,
+      previousPath: f.previous_filename,
+      additions: f.additions ?? 0,
+      deletions: f.deletions ?? 0,
     }));
+
+    const commits = (compare.commits ?? []).slice(-50).map((c) => ({
+      sha: c.sha.slice(0, 7),
+      message: (c.commit?.message ?? "").split("\n")[0],
+    }));
+
+    const totals = {
+      additions: files.reduce((sum, f) => sum + f.additions, 0),
+      deletions: files.reduce((sum, f) => sum + f.deletions, 0),
+      commits: compare.total_commits ?? commits.length,
+    };
 
     return NextResponse.json({
       branch: draft.branch,
       baseBranch: draft.baseBranch,
       files,
+      commits,
+      totals,
     });
   } catch (error) {
     if (error instanceof Error && (error.message.includes("404") || error.message.includes("Not Found"))) {

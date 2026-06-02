@@ -14,12 +14,28 @@ import toast from "react-hot-toast";
 interface DraftFile {
   path: string;
   status: "added" | "modified" | "removed" | "renamed";
+  previousPath?: string;
+  additions: number;
+  deletions: number;
+}
+
+interface DraftCommit {
+  sha: string;
+  message: string;
+}
+
+interface DraftTotals {
+  additions: number;
+  deletions: number;
+  commits: number;
 }
 
 interface DraftState {
   branch: string | null;
   baseBranch: string;
   files: DraftFile[];
+  commits: DraftCommit[];
+  totals: DraftTotals;
 }
 
 interface RepoBrowserClientProps {
@@ -55,7 +71,13 @@ export function RepoBrowserClient({
   const [newFolderParentPath, setNewFolderParentPath] = useState<string | null>(null);
 
   // Draft branch state (only relevant when requirePR is true)
-  const [draft, setDraft] = useState<DraftState>({ branch: null, baseBranch: "main", files: [] });
+  const [draft, setDraft] = useState<DraftState>({
+    branch: null,
+    baseBranch: "main",
+    files: [],
+    commits: [],
+    totals: { additions: 0, deletions: 0, commits: 0 },
+  });
   const [showProposeModal, setShowProposeModal] = useState(false);
   const [discarding, setDiscarding] = useState(false);
 
@@ -68,6 +90,8 @@ export function RepoBrowserClient({
             branch: data.branch ?? null,
             baseBranch: data.baseBranch ?? "main",
             files: data.files ?? [],
+            commits: data.commits ?? [],
+            totals: data.totals ?? { additions: 0, deletions: 0, commits: 0 },
           });
         }
       })
@@ -87,7 +111,13 @@ export function RepoBrowserClient({
         toast.error("Failed to discard pending changes.");
         return;
       }
-      setDraft({ branch: null, baseBranch: draft.baseBranch, files: [] });
+      setDraft({
+        branch: null,
+        baseBranch: draft.baseBranch,
+        files: [],
+        commits: [],
+        totals: { additions: 0, deletions: 0, commits: 0 },
+      });
       toast.success("Pending changes discarded.");
     } finally {
       setDiscarding(false);
@@ -95,7 +125,13 @@ export function RepoBrowserClient({
   }, [owner, repo, draft.baseBranch]);
 
   const handlePROpened = useCallback((prNumber: number, prUrl: string) => {
-    setDraft({ branch: null, baseBranch: draft.baseBranch, files: [] });
+    setDraft({
+      branch: null,
+      baseBranch: draft.baseBranch,
+      files: [],
+      commits: [],
+      totals: { additions: 0, deletions: 0, commits: 0 },
+    });
     setShowProposeModal(false);
     toast.success(
       <span>
@@ -461,6 +497,8 @@ export function RepoBrowserClient({
           baseBranch={draft.baseBranch}
           draftBranch={draft.branch}
           files={draft.files}
+          commits={draft.commits}
+          totals={draft.totals}
           onSuccess={handlePROpened}
         />
       )}

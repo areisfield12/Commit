@@ -29,7 +29,7 @@ export default async function RepoSettingsPage({ params }: RepoSettingsPageProps
         repo={repo}
         initialSettings={{
           defaultBranch: settings?.defaultBranch ?? "main",
-          requirePR: settings?.requirePR ?? false,
+          requirePR: settings?.requirePR ?? true,
           protectedBranches: settings?.protectedBranches ?? [],
           imageStorageFolder: settings?.imageStorageFolder ?? "public/images",
           imageUrlPrefix: settings?.imageUrlPrefix ?? "/images",

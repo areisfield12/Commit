@@ -11,6 +11,7 @@ interface NewFileModalProps {
   owner: string;
   repo: string;
   folderPath: string;
+  requirePR?: boolean;
   onFileCreated: (filePath: string) => void;
 }
 
@@ -31,6 +32,7 @@ export function NewFileModal({
   owner,
   repo,
   folderPath,
+  requirePR,
   onFileCreated,
 }: NewFileModalProps) {
   const [title, setTitle] = useState("");
@@ -88,10 +90,11 @@ export function NewFileModal({
 
       onOpenChange(false);
 
-      const githubUrl = `https://github.com/${owner}/${repo}/blob/main/${filePath}`;
+      const branchForLink = data.branch || "main";
+      const githubUrl = `https://github.com/${owner}/${repo}/blob/${branchForLink}/${filePath}`;
       toast.success(
         <span>
-          File created ·{" "}
+          {data.branch ? "Added to your draft branch" : "File created"} ·{" "}
           <a
             href={githubUrl}
             target="_blank"
@@ -124,10 +127,21 @@ export function NewFileModal({
         if (!creating) onOpenChange(v);
       }}
       title="New file"
-      description={`A markdown file will be created in ${displayPath}`}
+      description={
+        requirePR
+          ? `Adds a markdown file to ${displayPath} on your draft branch`
+          : `A markdown file will be created in ${displayPath}`
+      }
       className="max-w-[480px]"
     >
       <div className="space-y-4">
+        {requirePR && (
+          <p className="text-[12px] text-fg-tertiary leading-relaxed">
+            This file will be committed to your personal draft branch — not
+            the main branch. When you&apos;re done, click <strong>Propose
+            changes</strong> to open a pull request with all pending changes.
+          </p>
+        )}
         <div>
           <label className="block text-sm font-medium text-fg mb-1.5">
             Title

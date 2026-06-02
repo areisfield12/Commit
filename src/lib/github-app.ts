@@ -1,4 +1,5 @@
 import { App, Octokit } from "octokit";
+import { prisma } from "@/lib/prisma";
 
 // GitHub App singleton (server-side only)
 let _githubApp: App | null = null;
@@ -72,4 +73,98 @@ export async function getOctokitForRepo(owner: string): Promise<Octokit> {
     );
   }
   return getInstallationOctokit(installationId);
+}
+
+/**
+ * Resolve the user's active draft branch for (owner, repo), creating one if needed.
+ * Reuses an existing draft branch when it still exists on GitHub and has no open PR.
+ * Otherwise creates a fresh branch off the repo's default branch and persists it.
+ */
+export async function getOrCreateDraftBranch(params: {
+  userId: string;
+  owner: string;
+  repo: string;
+  githubLogin: string;
+}): Promise<{ branch: string; baseBranch: string }> {
+  const { userId, owner, repo, githubLogin } = params;
+  const octokit = await getOctokitForRepo(owner);
+
+  const settings = await prisma.repoSettings.findUnique({
+    where: { repoOwner_repoName: { repoOwner: owner, repoName: repo } },
+  });
+  const baseBranch = settings?.defaultBranch ?? "main";
+
+  const existing = await prisma.draftBranch.findUnique({
+    where: { userId_repoOwner_repoName: { userId, repoOwner: owner, repoName: repo } },
+  });
+
+  if (existing) {
+    let branchExists = true;
+    try {
+      await octokit.rest.git.getRef({ owner, repo, ref: `heads/${existing.branch}` });
+    } catch {
+      branchExists = false;
+    }
+
+    let hasOpenPR = false;
+    if (branchExists) {
+      try {
+        const { data: prs } = await octokit.rest.pulls.list({
+          owner,
+          repo,
+          head: `${owner}:${existing.branch}`,
+          state: "open",
+          per_page: 1,
+        });
+        hasOpenPR = prs.length > 0;
+      } catch {
+        // Treat as no open PR — listing is best-effort
+      }
+    }
+
+    if (branchExists && !hasOpenPR) {
+      return { branch: existing.branch, baseBranch: existing.baseBranch };
+    }
+
+    await prisma.draftBranch.delete({ where: { id: existing.id } }).catch(() => {});
+  }
+
+  const { data: baseRef } = await octokit.rest.git.getRef({
+    owner,
+    repo,
+    ref: `heads/${baseBranch}`,
+  });
+
+  const safeLogin = (githubLogin || "user").toLowerCase().replace(/[^a-z0-9-]/g, "-");
+  const branch = `commit/${safeLogin}/draft-${Date.now().toString(36)}`;
+
+  await octokit.rest.git.createRef({
+    owner,
+    repo,
+    ref: `refs/heads/${branch}`,
+    sha: baseRef.object.sha,
+  });
+
+  await prisma.draftBranch.create({
+    data: { userId, repoOwner: owner, repoName: repo, branch, baseBranch },
+  });
+
+  return { branch, baseBranch };
+}
+
+/**
+ * Remove the user's draft branch record (e.g. after a PR has been opened).
+ * Does not delete the underlying GitHub branch.
+ */
+export async function clearDraftBranch(params: {
+  userId: string;
+  owner: string;
+  repo: string;
+}): Promise<void> {
+  const { userId, owner, repo } = params;
+  await prisma.draftBranch
+    .delete({
+      where: { userId_repoOwner_repoName: { userId, repoOwner: owner, repoName: repo } },
+    })
+    .catch(() => {});
 }

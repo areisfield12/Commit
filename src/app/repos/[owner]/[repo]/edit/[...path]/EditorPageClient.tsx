@@ -15,6 +15,7 @@ import { LinkHoverPreview } from "@/components/editor/LinkHoverPreview";
 import { RightPanel } from "@/components/editor/RightPanel";
 import type { RightPanelView } from "@/components/editor/RightPanel";
 import { CreatePRModal } from "@/components/pr/CreatePRModal";
+import { ProposeDraftModal } from "@/components/pr/ProposeDraftModal";
 import { useGitHubFile } from "@/hooks/useGitHubFile";
 import { useEditorState } from "@/hooks/useEditorState";
 import { useComments } from "@/hooks/useComments";
@@ -42,6 +43,11 @@ interface EditorPageClientProps {
   imageUrlPrefix: string;
 }
 
+interface DraftFile {
+  path: string;
+  status: "added" | "modified" | "removed" | "renamed";
+}
+
 export function EditorPageClient({
   owner,
   repo,
@@ -52,6 +58,33 @@ export function EditorPageClient({
   imageStorageFolder,
   imageUrlPrefix,
 }: EditorPageClientProps) {
+  // Draft branch resolution — when requirePR is true, every read/write goes
+  // through the user's draft branch instead of the default branch.
+  const [draftReady, setDraftReady] = useState(!requirePR);
+  const [draftBranch, setDraftBranch] = useState<string | null>(null);
+  const [draftFiles, setDraftFiles] = useState<DraftFile[]>([]);
+
+  const refreshDraft = useCallback(async () => {
+    try {
+      const res = await fetch(`/api/github/${owner}/${repo}/draft`);
+      const data = await res.json();
+      if (res.ok) {
+        setDraftBranch(data.branch ?? null);
+        setDraftFiles(data.files ?? []);
+      }
+    } finally {
+      setDraftReady(true);
+    }
+  }, [owner, repo]);
+
+  useEffect(() => {
+    if (requirePR) {
+      refreshDraft();
+    }
+  }, [requirePR, refreshDraft]);
+
+  const effectiveBranch = draftBranch ?? defaultBranch;
+
   const {
     loading,
     error,
@@ -65,7 +98,14 @@ export function EditorPageClient({
     setFrontmatterData,
     getCurrentRaw,
     reload,
-  } = useGitHubFile({ owner, repo, path: filePath, branch: defaultBranch, imageStorageFolder, imageUrlPrefix });
+  } = useGitHubFile({
+    owner,
+    repo,
+    path: filePath,
+    branch: draftReady ? effectiveBranch : undefined,
+    imageStorageFolder,
+    imageUrlPrefix,
+  });
 
   // Editor mode: WYSIWYG or raw markdown
   const [mode, setMode] = useState<"wysiwyg" | "raw">("wysiwyg");
@@ -161,11 +201,21 @@ export function EditorPageClient({
         return null;
       }
 
+      // If the server routed the commit to a (possibly new) draft branch,
+      // adopt it for future reads/writes.
+      if (requirePR && data.branch && data.branch !== draftBranch) {
+        setDraftBranch(data.branch);
+      }
+
+      if (requirePR) {
+        refreshDraft();
+      }
+
       // Reload to get new SHA (confirmation bar replaces toast)
       reload();
       return { sha: data.sha };
     },
-    [sha, owner, repo, filePath, branch, reload]
+    [sha, owner, repo, filePath, branch, reload, requirePR, draftBranch, refreshDraft]
   );
 
   const getCurrentContent = useCallback(() => {
@@ -266,6 +316,12 @@ export function EditorPageClient({
       toast("Image upload in progress — please wait", { icon: "\u23F3" });
       return;
     }
+    if (requirePR) {
+      // PR-required mode: every save lands on the draft branch (safe),
+      // so we skip the "this commits directly to main" warning.
+      await executeSave();
+      return;
+    }
     const dismissed =
       typeof window !== "undefined" &&
       localStorage.getItem(SAVE_CONFIRM_DISMISSED_KEY) === "true";
@@ -274,11 +330,15 @@ export function EditorPageClient({
     } else {
       setShowSaveConfirmModal(true);
     }
-  }, [imageUploading, executeSave]);
+  }, [imageUploading, executeSave, requirePR]);
 
   const handleProposeChanges = useCallback(() => {
+    if (requirePR) {
+      // Refresh the draft file list so the modal reflects the latest committed state
+      refreshDraft();
+    }
     setShowPRModal(true);
-  }, []);
+  }, [requirePR, refreshDraft]);
 
   // Confirmation bar state
   const [showConfirmation, setShowConfirmation] = useState(false);
@@ -328,7 +388,7 @@ export function EditorPageClient({
     return () => document.removeEventListener("keydown", handleKeyDown);
   }, [editorState.status, handleSave]);
 
-  if (loading) {
+  if (loading || (requirePR && !draftReady)) {
     return (
       <div className="flex items-center justify-center h-screen bg-surface">
         <Loader2 className="h-6 w-6 animate-spin text-fg-tertiary" />
@@ -366,8 +426,10 @@ export function EditorPageClient({
       saveStatus={editorState.status}
       prNumber={editorState.prNumber}
       prUrl={editorState.prUrl}
-      onSave={requirePR ? undefined : handleSave}
+      onSave={handleSave}
       onProposeChanges={handleProposeChanges}
+      effectiveBranch={branch}
+      draftBranch={requirePR ? draftBranch : null}
     >
       <div className="h-full flex flex-col bg-surface">
         {/* Post-save confirmation bar */}
@@ -380,6 +442,8 @@ export function EditorPageClient({
           filePath={filePath}
           prNumber={editorState.prNumber}
           prUrl={editorState.prUrl}
+          isDraft={requirePR && !!draftBranch}
+          pendingCount={requirePR ? draftFiles.length : undefined}
           onDismiss={dismissConfirmation}
         />
 
@@ -545,19 +609,36 @@ export function EditorPageClient({
         onAccept={handleAIAccept}
       />
 
-      <CreatePRModal
-        open={showPRModal}
-        onClose={() => setShowPRModal(false)}
-        owner={owner}
-        repo={repo}
-        filePath={filePath}
-        baseBranch={branch}
-        originalContent={originalRaw}
-        newContent={currentRaw}
-        onSuccess={(prNumber, prUrl) => {
-          editorState.setPROpen(prNumber, prUrl);
-        }}
-      />
+      {requirePR ? (
+        <ProposeDraftModal
+          open={showPRModal}
+          onClose={() => setShowPRModal(false)}
+          owner={owner}
+          repo={repo}
+          baseBranch={defaultBranch}
+          draftBranch={draftBranch}
+          files={draftFiles}
+          onSuccess={(prNumber, prUrl) => {
+            editorState.setPROpen(prNumber, prUrl);
+            setDraftBranch(null);
+            setDraftFiles([]);
+          }}
+        />
+      ) : (
+        <CreatePRModal
+          open={showPRModal}
+          onClose={() => setShowPRModal(false)}
+          owner={owner}
+          repo={repo}
+          filePath={filePath}
+          baseBranch={branch}
+          originalContent={originalRaw}
+          newContent={currentRaw}
+          onSuccess={(prNumber, prUrl) => {
+            editorState.setPROpen(prNumber, prUrl);
+          }}
+        />
+      )}
     </AppShell>
   );
 }

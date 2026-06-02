@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
-import { getOctokitForRepo } from "@/lib/github-app";
+import { getOctokitForRepo, getOrCreateDraftBranch } from "@/lib/github-app";
+import { prisma } from "@/lib/prisma";
 import { formatGitHubError, encodeBase64 } from "@/lib/utils";
 
 interface CommitBody {
@@ -42,9 +43,26 @@ export async function POST(
   try {
     const octokit = await getOctokitForRepo(owner);
 
+    // In PR-required mode, transparently route every commit to the user's
+    // draft branch, regardless of which branch the client passed.
+    const settings = await prisma.repoSettings.findUnique({
+      where: { repoOwner_repoName: { repoOwner: owner, repoName: repo } },
+    });
+    const requirePR = settings?.requirePR ?? true;
+
+    let targetBranch = branch;
+    if (requirePR) {
+      const draft = await getOrCreateDraftBranch({
+        userId: session.user.id,
+        owner,
+        repo,
+        githubLogin: session.user.githubLogin ?? "user",
+      });
+      targetBranch = draft.branch;
+    }
+
     const filename = path.split("/").pop() ?? path;
-    const commitMessage =
-      message ?? `Update ${filename} via Commit`;
+    const commitMessage = message ?? `Update ${filename} via Commit`;
 
     const { data } = await octokit.rest.repos.createOrUpdateFileContents({
       owner,
@@ -53,7 +71,7 @@ export async function POST(
       message: commitMessage,
       content: encodeBase64(content),
       sha,
-      branch,
+      branch: targetBranch,
     });
 
     return NextResponse.json({
@@ -61,6 +79,7 @@ export async function POST(
       url: data.commit.html_url,
       message: commitMessage,
       fileSha: data.content?.sha,
+      branch: targetBranch,
     });
   } catch (error) {
     const friendly = formatGitHubError(error);

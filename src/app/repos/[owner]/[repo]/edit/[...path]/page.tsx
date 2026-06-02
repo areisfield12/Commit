@@ -33,7 +33,7 @@ export default async function EditorPage({ params }: EditorPageProps) {
       repo={repo}
       filePath={filePath}
       userId={session.user.id}
-      requirePR={repoSettings?.requirePR ?? false}
+      requirePR={repoSettings?.requirePR ?? true}
       defaultBranch={repoSettings?.defaultBranch ?? "main"}
       imageStorageFolder={repoSettings?.imageStorageFolder ?? "public/images"}
       imageUrlPrefix={repoSettings?.imageUrlPrefix ?? "/images"}

@@ -45,7 +45,7 @@ MDocs solves this by giving them a CMS-like interface that reads and writes dire
 
 ### Architecture overview
 
-- **Auth**: Hybrid NextAuth GitHub OAuth + GitHub App. JWT session stores `id`, `githubLogin`, `githubId`, `avatarUrl`. All GitHub API write calls use the GitHub App installation token via `getOctokitForRepo(owner)` in `src/lib/github-app.ts` — never the user's OAuth token. OAuth tokens are stored in the `Account` table but never read (dead code, do not use them).
+- **Auth**: Hybrid NextAuth GitHub OAuth + GitHub App. JWT session stores `id`, `githubLogin`, `githubId`, `avatarUrl`. All GitHub API read/write calls on repo content use the GitHub App installation token via `getOctokitForRepo(owner)` in `src/lib/github-app.ts` — never the user's OAuth token. The user's OAuth token (in the `Account` table) is read **only** to call `apps.listInstallationsForAuthenticatedUser` in `src/app/api/github/repos/route.ts`, since that's the one operation that requires user context (it returns installs across personal + org accounts the user belongs to).
 - **Editor**: TipTap v3.20.0 with StarterKit, Underline, Link, Placeholder, Table, CodeBlockLowlight, CharacterCount (installed but unused)
 - **Markdown pipeline**: `gray-matter` strips frontmatter on load → TipTap gets HTML only → `matter.stringify()` re-prepends YAML on save. Lives in `src/lib/markdown.ts`.
 - **Save state**: Managed in `src/hooks/useEditorState.ts` with states: `clean → unsaved → saving → saved → clean` (also `error` and `pr-open`)

@@ -46,6 +46,10 @@ export const authOptions: NextAuthOptions = {
       // subsequent sign-in NextAuth still hands us a fresh `account` object — write
       // those tokens to the Account row so refresh_token / access_token stay current.
       if (account?.provider === "github" && account.providerAccountId) {
+        const refreshExpiresRaw = (account as unknown as Record<string, unknown>).refresh_token_expires_in;
+        const refreshTokenExpiresIn =
+          typeof refreshExpiresRaw === "number" ? refreshExpiresRaw : null;
+
         try {
           await prisma.account.update({
             where: {
@@ -58,10 +62,7 @@ export const authOptions: NextAuthOptions = {
               access_token: account.access_token ?? null,
               refresh_token: account.refresh_token ?? null,
               expires_at: typeof account.expires_at === "number" ? account.expires_at : null,
-              refresh_token_expires_in:
-                typeof (account as { refresh_token_expires_in?: unknown }).refresh_token_expires_in === "number"
-                  ? ((account as { refresh_token_expires_in: number }).refresh_token_expires_in)
-                  : null,
+              refresh_token_expires_in: refreshTokenExpiresIn,
               token_type: account.token_type ?? null,
               scope: account.scope ?? null,
             },

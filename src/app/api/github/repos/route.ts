@@ -23,6 +23,8 @@ export async function GET() {
     return NextResponse.json(REAUTH_RESPONSE, { status: 401 });
   }
 
+  const userLogin = session.user.githubLogin?.toLowerCase() ?? null;
+
   try {
     const app = getGitHubApp();
 
@@ -31,7 +33,15 @@ export async function GET() {
     const { data } = await userOctokit.rest.apps.listInstallationsForAuthenticatedUser({
       per_page: 100,
     });
-    const userInstallations = data.installations;
+
+    // GitHub returns User-type installs from other people the user has any collab
+    // access to. We only want the user's OWN personal install + every org install.
+    const userInstallations = data.installations.filter((inst) => {
+      const accountType = inst.account && "type" in inst.account ? inst.account.type : null;
+      if (accountType === "Organization") return true;
+      const accountLogin = inst.account && "login" in inst.account ? inst.account.login : null;
+      return accountLogin && userLogin && accountLogin.toLowerCase() === userLogin;
+    });
 
     const repos: RepoInfo[] = [];
 

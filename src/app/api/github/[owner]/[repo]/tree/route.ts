@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { getOctokitForRepo } from "@/lib/github-app";
-import { formatGitHubError } from "@/lib/utils";
+import { githubErrorResponse } from "@/lib/utils";
 
 interface FolderNode {
   path: string;
@@ -68,7 +68,6 @@ export async function GET(
 
     return NextResponse.json({ folders: root, branch });
   } catch (error) {
-    const friendly = formatGitHubError(error);
-    return NextResponse.json(friendly, { status: 500 });
+    return githubErrorResponse(error, { route: "tree", owner, repo });
   }
 }

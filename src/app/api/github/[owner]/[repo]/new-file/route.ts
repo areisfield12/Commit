@@ -3,7 +3,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { getOctokitForRepo, getOrCreateDraftBranch } from "@/lib/github-app";
 import { prisma } from "@/lib/prisma";
-import { formatGitHubError, encodeBase64 } from "@/lib/utils";
+import { githubErrorResponse, encodeBase64 } from "@/lib/utils";
 
 interface NewFileBody {
   path: string;
@@ -123,7 +123,6 @@ description: ""
       branch: targetBranch ?? null,
     });
   } catch (error) {
-    const friendly = formatGitHubError(error);
-    return NextResponse.json(friendly, { status: 500 });
+    return githubErrorResponse(error, { route: "new-file", owner, repo, path });
   }
 }

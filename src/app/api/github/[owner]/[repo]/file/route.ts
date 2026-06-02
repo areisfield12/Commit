@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { getOctokitForRepo } from "@/lib/github-app";
-import { formatGitHubError, decodeBase64 } from "@/lib/utils";
+import { githubErrorResponse, decodeBase64 } from "@/lib/utils";
 
 export async function GET(
   request: NextRequest,
@@ -75,7 +75,6 @@ export async function GET(
       lastCommit,
     });
   } catch (error) {
-    const friendly = formatGitHubError(error);
-    return NextResponse.json(friendly, { status: 500 });
+    return githubErrorResponse(error, { route: "file", owner, repo, path, ref });
   }
 }

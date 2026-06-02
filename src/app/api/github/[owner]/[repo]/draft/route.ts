@@ -3,7 +3,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { getOctokitForRepo, clearDraftBranch } from "@/lib/github-app";
 import { prisma } from "@/lib/prisma";
-import { formatGitHubError } from "@/lib/utils";
+import { githubErrorResponse } from "@/lib/utils";
 
 type DraftFileStatus = "added" | "modified" | "removed" | "renamed";
 
@@ -78,8 +78,7 @@ export async function GET(
       await clearDraftBranch({ userId: session.user.id, owner, repo });
       return NextResponse.json({ branch: null, baseBranch, files: [] });
     }
-    const friendly = formatGitHubError(error);
-    return NextResponse.json(friendly, { status: 500 });
+    return githubErrorResponse(error, { route: "draft", owner, repo });
   }
 }
 

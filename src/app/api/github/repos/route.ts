@@ -4,7 +4,7 @@ import { Octokit } from "octokit";
 import { authOptions } from "@/lib/auth";
 import { getGitHubApp } from "@/lib/github-app";
 import { getValidGitHubUserToken } from "@/lib/github-oauth";
-import { formatGitHubError } from "@/lib/utils";
+import { githubErrorResponse } from "@/lib/utils";
 import { RepoInfo } from "@/types";
 
 const REAUTH_RESPONSE = {
@@ -78,11 +78,10 @@ export async function GET() {
 
     return NextResponse.json({ repos });
   } catch (error) {
-    console.error("[/api/github/repos] failed:", error);
     if ((error as { status?: number })?.status === 401) {
+      console.error("[/api/github/repos] 401 — re-auth needed");
       return NextResponse.json(REAUTH_RESPONSE, { status: 401 });
     }
-    const friendly = formatGitHubError(error);
-    return NextResponse.json(friendly, { status: 500 });
+    return githubErrorResponse(error, { route: "repos" });
   }
 }

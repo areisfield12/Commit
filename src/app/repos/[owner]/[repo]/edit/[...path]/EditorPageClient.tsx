@@ -620,8 +620,12 @@ export function EditorPageClient({
           files={draftFiles}
           onSuccess={(prNumber, prUrl) => {
             editorState.setPROpen(prNumber, prUrl);
-            setDraftBranch(null);
-            setDraftFiles([]);
+            // Intentionally keep `draftBranch` and `draftFiles` populated.
+            // The branch still exists on GitHub until the PR is merged, and
+            // the editor must keep reading from it — the file does not yet
+            // exist on the base branch. The server-side DraftBranch DB record
+            // was already cleared by the PR route, so a future edit will
+            // transparently start a fresh draft branch via the commit route.
           }}
         />
       ) : (

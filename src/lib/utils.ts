@@ -1,9 +1,54 @@
 import { clsx, type ClassValue } from "clsx";
 import { twMerge } from "tailwind-merge";
+import { NextResponse } from "next/server";
 import { ApiError } from "@/types";
 
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
+}
+
+/**
+ * Pull a status code off an Octokit / fetch error. Returns 500 when unknown.
+ */
+function extractStatus(error: unknown): number {
+  if (error && typeof error === "object" && "status" in error) {
+    const s = (error as { status?: unknown }).status;
+    if (typeof s === "number" && s >= 400 && s < 600) return s;
+  }
+  if (error instanceof Error) {
+    const msg = error.message.toLowerCase();
+    if (msg.includes("404") || msg.includes("not found")) return 404;
+    if (msg.includes("401") || msg.includes("unauthorized")) return 401;
+    if (msg.includes("403") || msg.includes("forbidden")) return 403;
+    if (msg.includes("409") || msg.includes("conflict")) return 409;
+    if (msg.includes("422")) return 422;
+    if (msg.includes("rate limit")) return 429;
+  }
+  return 500;
+}
+
+/**
+ * Centralized error response for GitHub API route handlers. Logs the raw
+ * error (so Vercel function logs capture the upstream GitHub status, ref,
+ * path, etc.), preserves the upstream HTTP status code, and returns a
+ * user-friendly JSON body.
+ */
+export function githubErrorResponse(
+  error: unknown,
+  context: Record<string, unknown> = {}
+): NextResponse {
+  const status = extractStatus(error);
+  const rawMessage =
+    error instanceof Error ? error.message : String(error);
+
+  // Server-side log — surfaces in Vercel function logs for debugging.
+  console.error("[github route error]", {
+    ...context,
+    status,
+    message: rawMessage,
+  });
+
+  return NextResponse.json(formatGitHubError(error), { status });
 }
 
 /**

@@ -3,9 +3,14 @@ import { getServerSession } from "next-auth";
 import { Octokit } from "octokit";
 import { authOptions } from "@/lib/auth";
 import { getGitHubApp } from "@/lib/github-app";
-import { prisma } from "@/lib/prisma";
+import { getValidGitHubUserToken } from "@/lib/github-oauth";
 import { formatGitHubError } from "@/lib/utils";
 import { RepoInfo } from "@/types";
+
+const REAUTH_RESPONSE = {
+  error: "GitHub session expired",
+  actionable: "Sign out and sign back in to reconnect GitHub.",
+};
 
 export async function GET() {
   const session = await getServerSession(authOptions);
@@ -13,22 +18,16 @@ export async function GET() {
     return NextResponse.json({ error: "Unauthorized", actionable: "Sign in to continue." }, { status: 401 });
   }
 
-  const account = await prisma.account.findFirst({
-    where: { userId: session.user.id, provider: "github" },
-    select: { access_token: true },
-  });
-  if (!account?.access_token) {
-    return NextResponse.json(
-      { error: "GitHub session expired", actionable: "Sign out and sign back in to reconnect GitHub." },
-      { status: 401 },
-    );
+  const accessToken = await getValidGitHubUserToken(session.user.id);
+  if (!accessToken) {
+    return NextResponse.json(REAUTH_RESPONSE, { status: 401 });
   }
 
   try {
     const app = getGitHubApp();
 
     // Ask GitHub which installations this user can see (personal + orgs they belong to).
-    const userOctokit = new Octokit({ auth: account.access_token });
+    const userOctokit = new Octokit({ auth: accessToken });
     const { data } = await userOctokit.rest.apps.listInstallationsForAuthenticatedUser({
       per_page: 100,
     });
@@ -70,6 +69,9 @@ export async function GET() {
     return NextResponse.json({ repos });
   } catch (error) {
     console.error("[/api/github/repos] failed:", error);
+    if ((error as { status?: number })?.status === 401) {
+      return NextResponse.json(REAUTH_RESPONSE, { status: 401 });
+    }
     const friendly = formatGitHubError(error);
     return NextResponse.json(friendly, { status: 500 });
   }

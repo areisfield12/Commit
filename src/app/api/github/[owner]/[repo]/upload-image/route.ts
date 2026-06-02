@@ -125,6 +125,7 @@ export async function POST(
         owner,
         repo,
         githubLogin: session.user.githubLogin ?? "user",
+        filePath: contentPath ?? undefined,
       });
       branch = draft.branch;
     }

@@ -73,6 +73,7 @@ description: ""
         owner,
         repo,
         githubLogin: session.user.githubLogin ?? "user",
+        filePath: path,
       });
       targetBranch = draft.branch;
     }

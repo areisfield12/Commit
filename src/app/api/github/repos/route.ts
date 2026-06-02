@@ -1,7 +1,9 @@
 import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
+import { Octokit } from "octokit";
 import { authOptions } from "@/lib/auth";
 import { getGitHubApp } from "@/lib/github-app";
+import { prisma } from "@/lib/prisma";
 import { formatGitHubError } from "@/lib/utils";
 import { RepoInfo } from "@/types";
 
@@ -11,22 +13,26 @@ export async function GET() {
     return NextResponse.json({ error: "Unauthorized", actionable: "Sign in to continue." }, { status: 401 });
   }
 
-  const githubLogin = session.user.githubLogin;
-  if (!githubLogin) {
-    return NextResponse.json({ error: "GitHub account not linked", actionable: "Sign in with GitHub to continue." }, { status: 401 });
+  const account = await prisma.account.findFirst({
+    where: { userId: session.user.id, provider: "github" },
+    select: { access_token: true },
+  });
+  if (!account?.access_token) {
+    return NextResponse.json(
+      { error: "GitHub session expired", actionable: "Sign out and sign back in to reconnect GitHub." },
+      { status: 401 },
+    );
   }
 
   try {
     const app = getGitHubApp();
 
-    // List all installations the app has, then scope to the current user
-    const { data: installations } = await app.octokit.rest.apps.listInstallations({
+    // Ask GitHub which installations this user can see (personal + orgs they belong to).
+    const userOctokit = new Octokit({ auth: account.access_token });
+    const { data } = await userOctokit.rest.apps.listInstallationsForAuthenticatedUser({
       per_page: 100,
     });
-
-    const userInstallations = installations.filter(
-      (inst) => inst.account?.login === githubLogin
-    );
+    const userInstallations = data.installations;
 
     const repos: RepoInfo[] = [];
 

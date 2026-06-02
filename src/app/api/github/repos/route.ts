@@ -69,6 +69,7 @@ export async function GET() {
 
     return NextResponse.json({ repos });
   } catch (error) {
+    console.error("[/api/github/repos] failed:", error);
     const friendly = formatGitHubError(error);
     return NextResponse.json(friendly, { status: 500 });
   }

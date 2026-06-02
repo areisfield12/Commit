@@ -59,7 +59,15 @@ export async function GET(
         "Cache-Control": "private, max-age=3600",
       },
     });
-  } catch {
+  } catch (error) {
+    console.error("[github route error]", {
+      route: "image",
+      owner,
+      repo,
+      path,
+      ref,
+      message: error instanceof Error ? error.message : String(error),
+    });
     return new NextResponse("Image not found", { status: 404 });
   }
 }

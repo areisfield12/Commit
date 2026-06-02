@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { getOctokitForRepo, getOrCreateDraftBranch } from "@/lib/github-app";
-import { formatGitHubError } from "@/lib/utils";
+import { githubErrorResponse } from "@/lib/utils";
 import { prisma } from "@/lib/prisma";
 
 const MAX_FILE_SIZE = 5 * 1024 * 1024; // 5MB
@@ -150,10 +150,11 @@ export async function POST(
 
     return NextResponse.json({ storagePath, markdownPath, githubUrl, rawUrl });
   } catch (error) {
-    const friendly = formatGitHubError(error);
-    return NextResponse.json(
-      { error: friendly.error, actionable: "Failed to upload image. Please try again." },
-      { status: 500 }
-    );
+    return githubErrorResponse(error, {
+      route: "upload-image",
+      owner,
+      repo,
+      filename: file.name,
+    });
   }
 }

@@ -49,6 +49,8 @@ MDocs solves this by giving them a CMS-like interface that reads and writes dire
 - **Editor**: TipTap v3.20.0 with StarterKit, Underline, Link, Placeholder, Table, CodeBlockLowlight, CharacterCount (installed but unused)
 - **Markdown pipeline**: `gray-matter` strips frontmatter on load → TipTap gets HTML only → `matter.stringify()` re-prepends YAML on save. Lives in `src/lib/markdown.ts`.
 - **Save state**: Managed in `src/hooks/useEditorState.ts` with states: `clean → unsaved → saving → saved → clean` (also `error` and `pr-open`)
+- **PR-required draft branches**: When `RepoSettings.requirePR` is `true` (now the default), every write — folder creation, file creation, edit, image upload — is silently routed to a per-user draft branch via `getOrCreateDraftBranch` in `src/lib/github-app.ts`. The branch name is `commit/{githubLogin}/draft-{shortId}`, recorded in the `DraftBranch` table (unique on `userId + owner + repo`). Clicking "Propose changes" opens a single PR from that branch to the default branch via `/api/github/[owner]/[repo]/pr` with `mode: "draft"`, then clears the DB record so the next edit starts fresh. The helper also self-heals: if the branch was deleted on GitHub or already has an open PR, the row is dropped and a new branch is created.
+- **GitHub error handling**: All `/api/github/*` route handlers funnel caught errors through `githubErrorResponse(error, context)` in `src/lib/utils.ts`. The helper `console.error`s the raw error with route context (so Vercel function logs capture the upstream message + status), then returns the friendly JSON with the *upstream* HTTP status code (404, 403, 422, 429, …) rather than always 500.
 - **Frontmatter panel**: Three-file architecture in `src/components/editor/`: `FrontmatterPanel.tsx` (right sidebar wrapper, routes schema vs no-schema), `FrontmatterEditor.tsx` (no-schema fallback with auto-detected field types), `FrontmatterFields.tsx` (shared field components: TextInput, AutoResizeTextInput, DateInput, TagsInput, ToggleInput, SelectInput, plus type coercion helpers and `detectFieldType`). All field components use design system tokens from `src/styles/tokens.css` — never hardcoded Tailwind color classes like `violet-*`.
 - **Navigation**: Miller columns browser replaced the old sidebar folder tree. Left sidebar shows global nav + repo list (no separate dashboard page). `src/app/repos/[owner]/[repo]/RepoBrowserClient.tsx` renders the Miller columns layout.
 - **Design system**: `src/styles/tokens.css` and `design-system.md` define color system, type scale (Geist + DM Sans + Geist Mono), spacing, border radius, shadow, and animation tokens.
@@ -90,6 +92,7 @@ MDocs solves this by giving them a CMS-like interface that reads and writes dire
 - **Inline code rendering fix** — Tailwind prose `code::before` / `code::after` override applied so backtick characters do not render around inline code in the editor.
 - **Frontmatter date serialization fix** — dates save as `YYYY-MM-DD` format, not ISO 8601 timestamps, to match standard frontmatter conventions.
 - **Tags serialization fix** — tags save in YAML inline array format (e.g. `[tag1, tag2]`) rather than block list style.
+- **PR-required draft branch workflow** — when `RepoSettings.requirePR=true` (default), `new-file`, `commit`, and `upload-image` all transparently route writes to a per-user draft branch instead of failing against branch protection on the default branch. The repo browser shows a sticky banner "N pending changes on your draft branch — not yet merged into `main`" with a Propose / Discard pair. The editor shows a persistent `Draft · {branch}` pill in the header, reads file content from the draft branch when one exists, and re-enables the Save button in PR mode (saves commit to the draft branch). `ProposeDraftModal` (`src/components/pr/ProposeDraftModal.tsx`) opens the PR from the existing draft branch — no per-file content needed. After PR opens, the editor keeps reading from the draft branch (it still exists on GitHub until the PR merges); the next *new* edit transparently starts a fresh draft via `getOrCreateDraftBranch`.
 
 ### Known bugs — fix these before building new features
 
@@ -128,7 +131,8 @@ MDocs solves this by giving them a CMS-like interface that reads and writes dire
 | `/api/github/[owner]/[repo]/file` | GET | Get single file content + last commit |
 | `/api/github/[owner]/[repo]/new-file` | POST | Create new file with pre-populated frontmatter |
 | `/api/github/[owner]/[repo]/commit` | POST | Direct commit to branch |
-| `/api/github/[owner]/[repo]/pr` | POST | Create PR |
+| `/api/github/[owner]/[repo]/pr` | POST | Create PR. Two modes: legacy single-file (pass `path`, `content`, `sha` — creates a branch + commit + PR) or draft mode (pass `mode: "draft"` — opens PR from the caller's existing draft branch and clears the DB record on success). |
+| `/api/github/[owner]/[repo]/draft` | GET/DELETE | GET returns the user's current draft state `{ branch, baseBranch, files[] }` (via `compareCommitsWithBasehead`); DELETE wipes the branch on GitHub and the DB record (Discard button). Self-heals if the branch was deleted manually. |
 | `/api/github/[owner]/[repo]/prs` | GET | List MDocs-created PRs |
 | `/api/github/[owner]/[repo]/collaborators` | GET | List repo collaborators |
 | `/api/github/[owner]/[repo]/upload-image` | POST | Commit image file to repo, return URL |
@@ -147,13 +151,15 @@ MDocs solves this by giving them a CMS-like interface that reads and writes dire
 
 ### Existing Prisma models (additive changes only)
 
-`Account`, `Session`, `VerificationToken`, `User`, `Comment`, `Reply`, `Suggestion` (DB only — no API routes or UI yet), `StarredFile`, `RepoSettings`, `Collection`
+`Account`, `Session`, `VerificationToken`, `User`, `Comment`, `Reply`, `Suggestion` (DB only — no API routes or UI yet), `StarredFile`, `RepoSettings`, `Collection`, `DraftBranch`
 
 **Notable fields added (do not re-add):**
 - `User.defaultRepo String?` — stores the user's preferred default repository
 - `RepoSettings.imageStorageFolder String?` — folder path where uploaded images are committed (e.g. `public/images`)
 - `RepoSettings.imageUrlPrefix String?` — URL prefix prepended to committed image filenames (e.g. `/images`)
 - `RepoSettings.organizeByFolder Boolean` — whether to organize uploaded images into subfolders by date/slug
+- `RepoSettings.requirePR Boolean` — **default is `true`**. Gates the draft branch workflow described above. Server-side fallback when no row exists is also `true`.
+- `DraftBranch` — one row per (`userId`, `repoOwner`, `repoName`); stores `branch` + `baseBranch` so the user's active draft survives across sessions until a PR opens or the branch is discarded.
 
 ### Key dependencies
 
@@ -252,13 +258,16 @@ Drag-and-drop, toolbar button, and clipboard paste. Commits image to the repo at
 - **All frontmatter date display uses UTC-safe parsing** to avoid timezone shift bugs (dates displaying as previous day).
 - **New file creation commits to GitHub immediately** via `POST /api/github/[owner]/[repo]/new-file` — it does not create a local-only draft.
 - **Image uploads commit directly to GitHub** via the GitHub App installation token. Storage path and URL prefix are configured per-repo in `RepoSettings`.
+- **PR-required mode is the default.** When extending any `/api/github/*` write route, look up `RepoSettings.requirePR` and call `getOrCreateDraftBranch` to resolve the target branch. The `commit` route ignores the client-passed `branch` in PR-required mode and always writes to the draft branch — the client doesn't need to know which branch is active. The editor on mount fetches `/draft` to resolve the effective branch for *reads*.
+- **Never `console.error(error)` directly inside a `/api/github/*` route handler** — use `githubErrorResponse(error, context)` from `src/lib/utils.ts`. It does the logging, extracts the upstream HTTP status, and returns the friendly JSON in one call. Pass identifying context (route name, owner, repo, path, ref) so Vercel logs are debuggable.
 
 ---
 
 ## What NOT to change without asking
 
 - The GitHub App authentication model — all writes must use `getOctokitForRepo(owner)` from `src/lib/github-app.ts`, never user OAuth tokens
-- The Prisma schema for `Comment`, `Reply`, `Suggestion`, `User`, `StarredFile`, `RepoSettings`, `Collection` — additive changes only, never modify existing fields
+- The Prisma schema for `Comment`, `Reply`, `Suggestion`, `User`, `StarredFile`, `RepoSettings`, `Collection`, `DraftBranch` — additive changes only, never modify existing fields
+- The draft-branch lifecycle: `getOrCreateDraftBranch` is the only function that creates rows in `DraftBranch`, and `clearDraftBranch` is the only one that deletes them. Don't bypass these — the resume/self-heal logic depends on them.
 - The TipTap editor core setup in `src/components/editor/` — extend it, don't replace it
 - NextAuth configuration in `src/lib/auth.ts`
 - The markdown pipeline in `src/lib/markdown.ts` — extend `prepareFileForEditor()` and `buildRawMarkdown()` if needed, don't rewrite them
@@ -278,6 +287,7 @@ Drag-and-drop, toolbar button, and clipboard paste. Commits image to the repo at
 - Error boundaries around all editor and GitHub API surfaces
 - When extending the TipTap editor, use `editor.chain().focus()` command API — never `document.execCommand()`
 - When reading editor selection, use `editor.state.selection` — never `window.getSelection()`
+- Error responses from `/api/github/*` routes use `githubErrorResponse(error, context)` from `src/lib/utils.ts` — it logs the raw error with route context and preserves the upstream HTTP status. Do not return `NextResponse.json(formatGitHubError(...), { status: 500 })` directly.
 
 ---
 

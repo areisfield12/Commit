@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { getOctokitForRepo } from "@/lib/github-app";
-import { formatGitHubError } from "@/lib/utils";
+import { githubErrorResponse } from "@/lib/utils";
 import { getFileCategory, isMarkdownFile } from "@/lib/file-types";
 import { FileNode } from "@/types";
 
@@ -64,7 +64,6 @@ export async function GET(
 
     return NextResponse.json({ files: markdownFiles, branch });
   } catch (error) {
-    const friendly = formatGitHubError(error);
-    return NextResponse.json(friendly, { status: 500 });
+    return githubErrorResponse(error, { route: "files", owner, repo });
   }
 }

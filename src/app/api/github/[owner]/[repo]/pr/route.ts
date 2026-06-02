@@ -3,7 +3,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { getOctokitForRepo, clearDraftBranch } from "@/lib/github-app";
 import { prisma } from "@/lib/prisma";
-import { formatGitHubError, encodeBase64, generateBranchName } from "@/lib/utils";
+import { githubErrorResponse, encodeBase64, generateBranchName } from "@/lib/utils";
 
 interface PRBody {
   // Single-file mode (legacy): commits one file to a fresh branch, then opens PR
@@ -141,7 +141,6 @@ export async function POST(
       branchName,
     });
   } catch (error) {
-    const friendly = formatGitHubError(error);
-    return NextResponse.json(friendly, { status: 500 });
+    return githubErrorResponse(error, { route: "pr", owner, repo, mode, baseBranch });
   }
 }

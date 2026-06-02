@@ -18,6 +18,8 @@ interface MillerColumnsContainerProps {
   repo: string;
   onSelectFolder: (folderPath: string, depth: number) => void;
   onSelectFile: (filePath: string) => void;
+  onCreatePage?: (folderPath: string) => void;
+  onCreateFolder?: (parentPath: string) => void;
 }
 
 function findFolderNode(nodes: FolderNode[], path: string): FolderNode | null {
@@ -75,6 +77,8 @@ export function MillerColumnsContainer({
   repo,
   onSelectFolder,
   onSelectFile,
+  onCreatePage,
+  onCreateFolder,
 }: MillerColumnsContainerProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const endRef = useRef<HTMLDivElement>(null);
@@ -112,7 +116,7 @@ export function MillerColumnsContainer({
 
   return (
     <div ref={scrollRef} className="flex-1 flex overflow-x-auto overflow-y-hidden">
-      {/* Column 0: top-level */}
+      {/* Column 0: top-level (no "+" button — repo root creation not exposed) */}
       <MillerColumn
         items={column0Items}
         selectedItem={selectedPath[0] ?? null}
@@ -155,6 +159,9 @@ export function MillerColumnsContainer({
             selectedItem={selectedPath[index + 1] ?? null}
             onSelect={handleColumnSelect(index + 1)}
             label={columnLabel}
+            folderPath={folderPath}
+            onCreatePage={onCreatePage}
+            onCreateFolder={onCreateFolder}
           />
         );
       })}

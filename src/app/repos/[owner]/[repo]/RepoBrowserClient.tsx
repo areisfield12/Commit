@@ -5,6 +5,8 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { Loader2, FileText } from "lucide-react";
 import { MillerColumnsContainer } from "@/components/miller/MillerColumnsContainer";
 import { MillerBreadcrumb } from "@/components/miller/MillerBreadcrumb";
+import { NewFileModal } from "@/components/repo/NewFileModal";
+import { NewFolderModal } from "@/components/repo/NewFolderModal";
 import { Collection, FileNode, FolderNode } from "@/types";
 import toast from "react-hot-toast";
 
@@ -35,19 +37,26 @@ export function RepoBrowserClient({
   const [selectedPath, setSelectedPath] = useState<string[]>([]);
   const [activeListFolder, setActiveListFolder] = useState<string | null>(null);
 
+  // Modal state for "+" button in column headers
+  const [newPageFolderPath, setNewPageFolderPath] = useState<string | null>(null);
+  const [newFolderParentPath, setNewFolderParentPath] = useState<string | null>(null);
+
+  const refreshTreeAndFiles = useCallback(() => {
+    return Promise.all([
+      fetch(`/api/github/${owner}/${repo}/tree`).then((r) => r.json()),
+      fetch(`/api/github/${owner}/${repo}/files`).then((r) => r.json()),
+    ]).then(([treeData, filesData]) => {
+      setFolders(treeData.folders ?? []);
+      setMarkdownPaths(
+        ((filesData.files ?? []) as FileNode[]).map((f) => f.path)
+      );
+    });
+  }, [owner, repo]);
+
   // Fetch tree, files, and collections on mount
   useEffect(() => {
     setLoading(true);
-    Promise.all([
-      fetch(`/api/github/${owner}/${repo}/tree`).then((r) => r.json()),
-      fetch(`/api/github/${owner}/${repo}/files`).then((r) => r.json()),
-    ])
-      .then(([treeData, filesData]) => {
-        setFolders(treeData.folders ?? []);
-        setMarkdownPaths(
-          ((filesData.files ?? []) as FileNode[]).map((f) => f.path)
-        );
-      })
+    refreshTreeAndFiles()
       .catch(() => toast.error("Failed to load repository."))
       .finally(() => setLoading(false));
 
@@ -56,7 +65,7 @@ export function RepoBrowserClient({
       .then((r) => r.json())
       .then((data) => setCollections(data.collections ?? []))
       .catch(() => {/* collections are non-critical, fail silently */});
-  }, [owner, repo]);
+  }, [owner, repo, refreshTreeAndFiles]);
 
   // Folders that contain at least one markdown file at any depth
   const foldersWithMarkdown = useMemo(() => {
@@ -133,6 +142,50 @@ export function RepoBrowserClient({
       router.push(`/repos/${owner}/${repo}/edit/${filePath}`);
     },
     [owner, repo, router]
+  );
+
+  const handleCreatePage = useCallback((folderPath: string) => {
+    setNewPageFolderPath(folderPath);
+  }, []);
+
+  const handleCreateFolder = useCallback((parentPath: string) => {
+    setNewFolderParentPath(parentPath);
+  }, []);
+
+  // Child folder names directly under a given parent — used to block sibling collisions
+  const childFolderNames = useMemo(() => {
+    if (newFolderParentPath === null) return [];
+    const node = findFolderNode(newFolderParentPath);
+    return (node?.children ?? []).map((c) => c.name);
+  }, [newFolderParentPath, findFolderNode]);
+
+  const handleNewPageCreated = useCallback(
+    (filePath: string) => {
+      setNewPageFolderPath(null);
+      router.push(`/repos/${owner}/${repo}/edit/${filePath}`);
+    },
+    [owner, repo, router]
+  );
+
+  const handleNewFolderCreated = useCallback(
+    async (folderPath: string, filePath: string) => {
+      setNewFolderParentPath(null);
+
+      // Extend selection to include the new folder so it's visible immediately
+      const parts = folderPath.split("/");
+      const newSelected: string[] = [];
+      for (let i = 1; i <= parts.length; i++) {
+        newSelected.push(parts.slice(0, i).join("/"));
+      }
+      setSelectedPath(newSelected);
+
+      // Refresh in the background; navigate immediately to the new page
+      refreshTreeAndFiles().catch(() => {
+        toast.error("Created folder, but failed to refresh the repository view.");
+      });
+      router.push(`/repos/${owner}/${repo}/edit/${filePath}`);
+    },
+    [owner, repo, router, refreshTreeAndFiles]
   );
 
   const handleBreadcrumbNavigate = useCallback(
@@ -249,7 +302,36 @@ export function RepoBrowserClient({
         repo={repo}
         onSelectFolder={handleSelectFolder}
         onSelectFile={handleSelectFile}
+        onCreatePage={handleCreatePage}
+        onCreateFolder={handleCreateFolder}
       />
+
+      {newPageFolderPath !== null && (
+        <NewFileModal
+          open
+          onOpenChange={(v) => {
+            if (!v) setNewPageFolderPath(null);
+          }}
+          owner={owner}
+          repo={repo}
+          folderPath={newPageFolderPath}
+          onFileCreated={handleNewPageCreated}
+        />
+      )}
+
+      {newFolderParentPath !== null && (
+        <NewFolderModal
+          open
+          onOpenChange={(v) => {
+            if (!v) setNewFolderParentPath(null);
+          }}
+          owner={owner}
+          repo={repo}
+          parentPath={newFolderParentPath}
+          existingChildFolderNames={childFolderNames}
+          onCreated={handleNewFolderCreated}
+        />
+      )}
     </div>
   );
 }

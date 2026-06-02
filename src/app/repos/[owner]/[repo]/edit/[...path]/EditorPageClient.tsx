@@ -46,6 +46,20 @@ interface EditorPageClientProps {
 interface DraftFile {
   path: string;
   status: "added" | "modified" | "removed" | "renamed";
+  previousPath?: string;
+  additions: number;
+  deletions: number;
+}
+
+interface DraftCommit {
+  sha: string;
+  message: string;
+}
+
+interface DraftTotals {
+  additions: number;
+  deletions: number;
+  commits: number;
 }
 
 export function EditorPageClient({
@@ -63,6 +77,12 @@ export function EditorPageClient({
   const [draftReady, setDraftReady] = useState(!requirePR);
   const [draftBranch, setDraftBranch] = useState<string | null>(null);
   const [draftFiles, setDraftFiles] = useState<DraftFile[]>([]);
+  const [draftCommits, setDraftCommits] = useState<DraftCommit[]>([]);
+  const [draftTotals, setDraftTotals] = useState<DraftTotals>({
+    additions: 0,
+    deletions: 0,
+    commits: 0,
+  });
 
   const refreshDraft = useCallback(async () => {
     try {
@@ -71,6 +91,8 @@ export function EditorPageClient({
       if (res.ok) {
         setDraftBranch(data.branch ?? null);
         setDraftFiles(data.files ?? []);
+        setDraftCommits(data.commits ?? []);
+        setDraftTotals(data.totals ?? { additions: 0, deletions: 0, commits: 0 });
       }
     } finally {
       setDraftReady(true);
@@ -618,6 +640,8 @@ export function EditorPageClient({
           baseBranch={defaultBranch}
           draftBranch={draftBranch}
           files={draftFiles}
+          commits={draftCommits}
+          totals={draftTotals}
           onSuccess={(prNumber, prUrl) => {
             editorState.setPROpen(prNumber, prUrl);
             // Intentionally keep `draftBranch` and `draftFiles` populated.

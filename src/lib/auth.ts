@@ -29,7 +29,7 @@ export const authOptions: NextAuthOptions = {
     }),
   ],
   callbacks: {
-    jwt: async ({ token, user }) => {
+    jwt: async ({ token, user, account }) => {
       if (user) {
         token.id = user.id;
         token.githubLogin = (user as any).githubLogin ?? null;
@@ -41,6 +41,36 @@ export const authOptions: NextAuthOptions = {
           return { ...token, id: null };
         }
       }
+
+      // PrismaAdapter only writes Account tokens on the very first sign-in. On every
+      // subsequent sign-in NextAuth still hands us a fresh `account` object — write
+      // those tokens to the Account row so refresh_token / access_token stay current.
+      if (account?.provider === "github" && account.providerAccountId) {
+        try {
+          await prisma.account.update({
+            where: {
+              provider_providerAccountId: {
+                provider: account.provider,
+                providerAccountId: account.providerAccountId,
+              },
+            },
+            data: {
+              access_token: account.access_token ?? null,
+              refresh_token: account.refresh_token ?? null,
+              expires_at: typeof account.expires_at === "number" ? account.expires_at : null,
+              refresh_token_expires_in:
+                typeof (account as { refresh_token_expires_in?: unknown }).refresh_token_expires_in === "number"
+                  ? ((account as { refresh_token_expires_in: number }).refresh_token_expires_in)
+                  : null,
+              token_type: account.token_type ?? null,
+              scope: account.scope ?? null,
+            },
+          });
+        } catch (err) {
+          console.error("[auth.jwt] failed to update Account tokens:", err);
+        }
+      }
+
       return token;
     },
     session: ({ session, token }) => ({

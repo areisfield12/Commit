@@ -30,19 +30,38 @@ interface UseGitHubFileResult {
   reload: () => void;
 }
 
+// Collapse "./" and "../" segments against a base directory, mirroring how
+// GitHub renders relative paths in markdown.
+function resolveRepoPath(dir: string, relativeSrc: string): string {
+  const baseParts = dir ? dir.split("/").filter(Boolean) : [];
+  const relParts = relativeSrc.split("/");
+
+  for (const part of relParts) {
+    if (part === "" || part === ".") continue;
+    if (part === "..") {
+      baseParts.pop();
+      continue;
+    }
+    baseParts.push(part);
+  }
+
+  return baseParts.join("/");
+}
+
 /**
- * Rewrite relative image src attributes in HTML to GitHub raw URLs so images
- * stored in the repo (uploaded via Commit) render correctly in the editor when
- * opening a file from a previous session.
+ * Rewrite every relative image src in the loaded HTML to point at our image
+ * proxy endpoint, so images stored anywhere in the repo render in the editor
+ * regardless of how the original author wrote the path.
  *
- * Also sets `data-markdown-src` on each rewritten img to the original relative
- * path, so Turndown's commitImage rule produces the correct markdown on save.
+ * Sets `data-markdown-src` to the original src so Turndown's commitImage rule
+ * round-trips the markdown unchanged on save.
  */
 function rewriteRelativeImageSrcs(
   html: string,
   owner: string,
   repo: string,
   branch: string,
+  filePath: string,
   imageStorageFolder: string,
   imageUrlPrefix: string
 ): string {
@@ -52,21 +71,41 @@ function rewriteRelativeImageSrcs(
   const doc = parser.parseFromString(html, "text/html");
   const imgs = doc.querySelectorAll("img");
 
+  const docDir = filePath.includes("/")
+    ? filePath.slice(0, filePath.lastIndexOf("/"))
+    : "";
+  // Normalize the configured prefix so a trailing slash doesn't break matching.
+  const prefix = imageUrlPrefix.endsWith("/")
+    ? imageUrlPrefix.slice(0, -1)
+    : imageUrlPrefix;
+  const storage = imageStorageFolder.endsWith("/")
+    ? imageStorageFolder.slice(0, -1)
+    : imageStorageFolder;
+
   imgs.forEach((img) => {
     const src = img.getAttribute("src");
-    // Only rewrite relative paths that start with imageUrlPrefix and haven't
-    // already been rewritten (no data-markdown-src means this is a fresh load).
-    if (!src || !src.startsWith(imageUrlPrefix) || img.getAttribute("data-markdown-src")) {
-      return;
+    if (!src) return;
+    // Already processed (just-inserted upload, or prior rewrite).
+    if (img.getAttribute("data-markdown-src")) return;
+    // Leave absolute URLs, data/blob URLs, anchors, and mail links alone.
+    if (/^(https?:|data:|blob:|mailto:|#)/i.test(src)) return;
+
+    let repoPath: string;
+    if (prefix && (src === prefix || src.startsWith(prefix + "/"))) {
+      // Configured URL prefix → storage folder mapping (existing behavior).
+      const relativePart = src.slice(prefix.length);
+      repoPath = `${storage}${relativePart}`;
+    } else if (src.startsWith("/")) {
+      // Repo-absolute path.
+      repoPath = src.slice(1);
+    } else {
+      // Relative to the document's directory.
+      repoPath = resolveRepoPath(docDir, src);
     }
 
-    // Strip imageUrlPrefix prefix, prepend imageStorageFolder to get the repo path.
-    // e.g. "/images/photo.jpg" → "public/images/photo.jpg"
-    const relativePart = src.slice(imageUrlPrefix.length);
-    const repoPath = `${imageStorageFolder}${relativePart}`;
-    // Proxy through our API so it works for both public and private repos.
-    const proxyUrl = `/api/github/${owner}/${repo}/image?path=${encodeURIComponent(repoPath)}&ref=${encodeURIComponent(branch)}`;
+    if (!repoPath) return;
 
+    const proxyUrl = `/api/github/${owner}/${repo}/image?path=${encodeURIComponent(repoPath)}&ref=${encodeURIComponent(branch)}`;
     img.setAttribute("data-markdown-src", src);
     img.setAttribute("src", proxyUrl);
   });
@@ -124,6 +163,7 @@ export function useGitHubFile({
           owner,
           repo,
           branch ?? "main",
+          path,
           imageStorageFolder,
           imageUrlPrefix
         );

@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
-import { getOctokitForRepo } from "@/lib/github-app";
+import { getOctokitForRepo, getOrCreateDraftBranch } from "@/lib/github-app";
+import { prisma } from "@/lib/prisma";
 import { formatGitHubError, encodeBase64 } from "@/lib/utils";
 
 interface NewFileBody {
@@ -60,14 +61,30 @@ description: ""
   try {
     const octokit = await getOctokitForRepo(owner);
 
-    // Check if file already exists
+    const settings = await prisma.repoSettings.findUnique({
+      where: { repoOwner_repoName: { repoOwner: owner, repoName: repo } },
+    });
+    const requirePR = settings?.requirePR ?? true;
+
+    let targetBranch: string | undefined;
+    if (requirePR) {
+      const draft = await getOrCreateDraftBranch({
+        userId: session.user.id,
+        owner,
+        repo,
+        githubLogin: session.user.githubLogin ?? "user",
+      });
+      targetBranch = draft.branch;
+    }
+
+    // Check if file already exists on the target ref (default branch when undefined)
     try {
       await octokit.rest.repos.getContent({
         owner,
         repo,
         path,
+        ref: targetBranch,
       });
-      // If we get here, file exists
       return NextResponse.json(
         {
           error: "File already exists",
@@ -77,7 +94,6 @@ description: ""
         { status: 409 }
       );
     } catch (checkError: unknown) {
-      // 404 means file doesn't exist — that's what we want
       if (
         checkError instanceof Error &&
         !checkError.message.includes("Not Found") &&
@@ -96,6 +112,7 @@ description: ""
       path,
       message: commitMessage,
       content: encodeBase64(content),
+      branch: targetBranch,
     });
 
     return NextResponse.json({
@@ -103,6 +120,7 @@ description: ""
       sha: data.content?.sha,
       commitSha: data.commit.sha,
       url: data.commit.html_url,
+      branch: targetBranch ?? null,
     });
   } catch (error) {
     const friendly = formatGitHubError(error);

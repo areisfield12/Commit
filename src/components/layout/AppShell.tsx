@@ -17,6 +17,8 @@ interface AppShellProps {
   filePath?: string;
   repoOwner?: string;
   repoName?: string;
+  effectiveBranch?: string;
+  draftBranch?: string | null;
 }
 
 export function AppShell({
@@ -29,6 +31,8 @@ export function AppShell({
   filePath,
   repoOwner,
   repoName,
+  effectiveBranch,
+  draftBranch,
 }: AppShellProps) {
   const [sidebarOpen, setSidebarOpen] = useState(true);
 
@@ -61,6 +65,8 @@ export function AppShell({
           filePath={filePath}
           repoOwner={repoOwner}
           repoName={repoName}
+          effectiveBranch={effectiveBranch}
+          draftBranch={draftBranch}
         />
         <main className="flex-1 overflow-hidden">{children}</main>
       </div>

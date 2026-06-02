@@ -3,7 +3,7 @@
 import { Fragment } from "react";
 import { useSession, signOut } from "next-auth/react";
 import { useRouter } from "next/navigation";
-import { PanelLeftClose, PanelLeftOpen, ChevronDown, LogOut, Settings, ExternalLink } from "lucide-react";
+import { PanelLeftClose, PanelLeftOpen, ChevronDown, LogOut, Settings, ExternalLink, GitBranch } from "lucide-react";
 import Image from "next/image";
 import Link from "next/link";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
@@ -23,6 +23,8 @@ interface HeaderProps {
   filePath?: string;
   repoOwner?: string;
   repoName?: string;
+  effectiveBranch?: string;
+  draftBranch?: string | null;
 }
 
 export function Header({
@@ -36,6 +38,8 @@ export function Header({
   filePath,
   repoOwner,
   repoName,
+  effectiveBranch,
+  draftBranch,
 }: HeaderProps) {
   const { data: session } = useSession();
   const router = useRouter();
@@ -98,13 +102,28 @@ export function Header({
         )}
         {isEditorPage && (
           <a
-            href={`https://github.com/${repoOwner}/${repoName}/blob/main/${filePath}`}
+            href={`https://github.com/${repoOwner}/${repoName}/blob/${effectiveBranch ?? "main"}/${filePath}`}
             target="_blank"
             rel="noopener noreferrer"
             title="View file on GitHub"
             className="ml-2 text-fg-tertiary hover:text-fg-secondary transition-colors duration-100 flex-shrink-0"
           >
             <ExternalLink className="h-3 w-3" strokeWidth={1.5} />
+          </a>
+        )}
+        {isEditorPage && draftBranch && (
+          <a
+            href={`https://github.com/${repoOwner}/${repoName}/tree/${draftBranch}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            title={`Draft branch: ${draftBranch}`}
+            className="ml-2 inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md border border-accent-border bg-accent/10 text-[11px] text-accent hover:bg-accent/15 transition-colors max-w-[280px]"
+          >
+            <GitBranch className="h-3 w-3 flex-shrink-0" />
+            <span className="font-medium flex-shrink-0">Draft</span>
+            <span className="font-mono text-fg-tertiary truncate" aria-hidden="true">
+              {draftBranch}
+            </span>
           </a>
         )}
       </div>

@@ -66,6 +66,7 @@ model User {
   replies       Reply[]
   suggestions   Suggestion[]
   starredFiles  StarredFile[]
+  draftBranches DraftBranch[]
   createdAt     DateTime  @default(now())
 }
 
@@ -141,7 +142,7 @@ model RepoSettings {
   repoOwner          String
   repoName           String
   defaultBranch      String   @default("main")
-  requirePR          Boolean  @default(false)
+  requirePR          Boolean  @default(true)
   protectedBranches  String[]
   imageStorageFolder String   @default("public/images")
   imageUrlPrefix     String   @default("/images")
@@ -150,6 +151,22 @@ model RepoSettings {
   updatedAt          DateTime @updatedAt
 
   @@unique([repoOwner, repoName])
+}
+
+// ─── Draft Branches ───────────────────────────────────────────────────────
+
+model DraftBranch {
+  id         String   @id @default(cuid())
+  userId     String
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  repoOwner  String
+  repoName   String
+  branch     String
+  baseBranch String
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@unique([userId, repoOwner, repoName])
 }
 
 // ─── Content Collections ──────────────────────────────────────────────────

@@ -1,13 +1,17 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
-import { getOctokitForRepo } from "@/lib/github-app";
+import { getOctokitForRepo, clearDraftBranch } from "@/lib/github-app";
+import { prisma } from "@/lib/prisma";
 import { formatGitHubError, encodeBase64, generateBranchName } from "@/lib/utils";
 
 interface PRBody {
-  path: string;
-  content: string;
-  sha: string;
+  // Single-file mode (legacy): commits one file to a fresh branch, then opens PR
+  path?: string;
+  content?: string;
+  sha?: string;
+  // Draft mode: opens PR from the caller's existing draft branch (no new commits)
+  mode?: "draft";
   baseBranch: string;
   title: string;
   body: string;
@@ -32,9 +36,9 @@ export async function POST(
     return NextResponse.json({ error: "Invalid request", actionable: "Please try again." }, { status: 400 });
   }
 
-  const { path, content, sha: fileSha, baseBranch, title, body: prBody, reviewers } = body;
+  const { path, content, sha: fileSha, mode, baseBranch, title, body: prBody, reviewers } = body;
 
-  if (!path || !content || !fileSha || !baseBranch || !title) {
+  if (!baseBranch || !title) {
     return NextResponse.json(
       { error: "Missing required fields", actionable: "Fill in all required fields and try again." },
       { status: 400 }
@@ -44,40 +48,66 @@ export async function POST(
   const octokit = await getOctokitForRepo(owner);
 
   try {
-    // Step 1: Get the SHA of the base branch HEAD
-    const { data: baseRef } = await octokit.rest.git.getRef({
-      owner,
-      repo,
-      ref: `heads/${baseBranch}`,
-    });
-    const baseSha = baseRef.object.sha;
+    let branchName: string;
 
-    // Step 2: Create a new branch
-    const branchName = generateBranchName(
-      session.user.githubLogin ?? "user",
-      path
-    );
+    if (mode === "draft") {
+      // Open a PR from the user's existing draft branch (which already has commits).
+      const draft = await prisma.draftBranch.findUnique({
+        where: {
+          userId_repoOwner_repoName: {
+            userId: session.user.id,
+            repoOwner: owner,
+            repoName: repo,
+          },
+        },
+      });
+      if (!draft) {
+        return NextResponse.json(
+          {
+            error: "No pending changes",
+            actionable: "Make at least one change before proposing.",
+          },
+          { status: 400 }
+        );
+      }
+      branchName = draft.branch;
+    } else {
+      // Legacy single-file flow: branch + one commit + PR
+      if (!path || !content || !fileSha) {
+        return NextResponse.json(
+          { error: "Missing required fields", actionable: "Fill in all required fields and try again." },
+          { status: 400 }
+        );
+      }
 
-    await octokit.rest.git.createRef({
-      owner,
-      repo,
-      ref: `refs/heads/${branchName}`,
-      sha: baseSha,
-    });
+      const { data: baseRef } = await octokit.rest.git.getRef({
+        owner,
+        repo,
+        ref: `heads/${baseBranch}`,
+      });
+      const baseSha = baseRef.object.sha;
 
-    // Step 3: Commit the file to the new branch
-    const filename = path.split("/").pop() ?? path;
-    await octokit.rest.repos.createOrUpdateFileContents({
-      owner,
-      repo,
-      path,
-      message: `Update ${filename} via Commit`,
-      content: encodeBase64(content),
-      sha: fileSha,
-      branch: branchName,
-    });
+      branchName = generateBranchName(session.user.githubLogin ?? "user", path);
 
-    // Step 4: Create the PR
+      await octokit.rest.git.createRef({
+        owner,
+        repo,
+        ref: `refs/heads/${branchName}`,
+        sha: baseSha,
+      });
+
+      const filename = path.split("/").pop() ?? path;
+      await octokit.rest.repos.createOrUpdateFileContents({
+        owner,
+        repo,
+        path,
+        message: `Update ${filename} via Commit`,
+        content: encodeBase64(content),
+        sha: fileSha,
+        branch: branchName,
+      });
+    }
+
     const { data: pr } = await octokit.rest.pulls.create({
       owner,
       repo,
@@ -87,7 +117,6 @@ export async function POST(
       base: baseBranch,
     });
 
-    // Step 5: Request reviewers (if any)
     if (reviewers && reviewers.length > 0) {
       try {
         await octokit.rest.pulls.requestReviewers({
@@ -99,6 +128,10 @@ export async function POST(
       } catch {
         // Non-fatal — PR was created, reviewer assignment just failed
       }
+    }
+
+    if (mode === "draft") {
+      await clearDraftBranch({ userId: session.user.id, owner, repo });
     }
 
     return NextResponse.json({

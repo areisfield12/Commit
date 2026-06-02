@@ -13,6 +13,7 @@ interface NewFolderModalProps {
   repo: string;
   parentPath: string;
   existingChildFolderNames: string[];
+  requirePR?: boolean;
   onCreated: (folderPath: string, filePath: string) => void;
 }
 
@@ -37,6 +38,7 @@ export function NewFolderModal({
   repo,
   parentPath,
   existingChildFolderNames,
+  requirePR,
   onCreated,
 }: NewFolderModalProps) {
   const [step, setStep] = useState<1 | 2>(1);
@@ -107,10 +109,11 @@ export function NewFolderModal({
 
       onOpenChange(false);
 
-      const githubUrl = `https://github.com/${owner}/${repo}/blob/main/${filePath}`;
+      const branchForLink = data.branch || "main";
+      const githubUrl = `https://github.com/${owner}/${repo}/blob/${branchForLink}/${filePath}`;
       toast.success(
         <span>
-          Folder and page created ·{" "}
+          {data.branch ? "Added folder to your draft branch" : "Folder and page created"} ·{" "}
           <a
             href={githubUrl}
             target="_blank"
@@ -152,13 +155,22 @@ export function NewFolderModal({
       title={step === 1 ? "New folder" : "First page in folder"}
       description={
         step === 1
-          ? `A folder will be created in ${folderDisplayPath}`
+          ? requirePR
+            ? `Adds a folder in ${folderDisplayPath} on your draft branch`
+            : `A folder will be created in ${folderDisplayPath}`
           : `Add the first page to /${parentPath ? `${parentPath}/` : ""}${folderSlug}`
       }
       className="max-w-[480px]"
     >
       {step === 1 ? (
         <div className="space-y-4">
+          {requirePR && (
+            <p className="text-[12px] text-fg-tertiary leading-relaxed">
+              This folder and its first page will be committed to your personal
+              draft branch — not the main branch. Click <strong>Propose
+              changes</strong> when you&apos;re done to open a pull request.
+            </p>
+          )}
           <div>
             <label className="block text-sm font-medium text-fg mb-1.5">
               Folder name

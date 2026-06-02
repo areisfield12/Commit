@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
-import { getOctokitForRepo } from "@/lib/github-app";
+import { getOctokitForRepo, getOrCreateDraftBranch } from "@/lib/github-app";
 import { formatGitHubError } from "@/lib/utils";
 import { prisma } from "@/lib/prisma";
 
@@ -115,7 +115,19 @@ export async function POST(
 
     // Commit image to GitHub
     const octokit = await getOctokitForRepo(owner);
-    const branch = repoSettings?.defaultBranch ?? "main";
+    const defaultBranch = repoSettings?.defaultBranch ?? "main";
+    const requirePR = repoSettings?.requirePR ?? true;
+
+    let branch = defaultBranch;
+    if (requirePR) {
+      const draft = await getOrCreateDraftBranch({
+        userId: session.user.id,
+        owner,
+        repo,
+        githubLogin: session.user.githubLogin ?? "user",
+      });
+      branch = draft.branch;
+    }
 
     await octokit.rest.repos.createOrUpdateFileContents({
       owner,

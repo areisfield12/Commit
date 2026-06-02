@@ -12,6 +12,8 @@ interface SaveConfirmationBarProps {
   filePath: string;
   prNumber?: number;
   prUrl?: string;
+  isDraft?: boolean;
+  pendingCount?: number;
   onDismiss: () => void;
 }
 
@@ -24,6 +26,8 @@ export function SaveConfirmationBar({
   filePath,
   prNumber,
   prUrl,
+  isDraft,
+  pendingCount,
   onDismiss,
 }: SaveConfirmationBarProps) {
   const [show, setShow] = useState(false);
@@ -56,8 +60,14 @@ export function SaveConfirmationBar({
     ? `https://github.com/${owner}/${repo}/blob/${branch}/${filePath}`
     : prUrl ?? `https://github.com/${owner}/${repo}/pulls`;
 
+  const draftSuffix =
+    pendingCount && pendingCount > 0
+      ? ` \u00b7 ${pendingCount} pending change${pendingCount === 1 ? "" : "s"}`
+      : "";
   const message = isSave
-    ? `Saved \u00b7 Committed to ${branch} \u00b7 just now`
+    ? isDraft
+      ? `Saved to your draft branch${draftSuffix}`
+      : `Saved \u00b7 Committed to ${branch} \u00b7 just now`
     : `Pull request created \u00b7 PR #${prNumber ?? ""} open for review`;
 
   return (

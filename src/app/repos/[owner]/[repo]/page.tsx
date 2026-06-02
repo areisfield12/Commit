@@ -41,7 +41,7 @@ export default async function RepoPage({ params }: RepoPageProps) {
           repo={repo}
           userId={session.user.id}
           initialStarredPaths={starredFiles.map((s) => s.filePath)}
-          requirePR={repoSettings?.requirePR ?? false}
+          requirePR={repoSettings?.requirePR ?? true}
         />
       </Suspense>
     </AppShell>

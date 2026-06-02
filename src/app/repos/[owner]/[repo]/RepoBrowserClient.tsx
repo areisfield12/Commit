@@ -2,13 +2,25 @@
 
 import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Loader2, FileText } from "lucide-react";
+import { Loader2, FileText, GitPullRequest, ExternalLink, GitBranch } from "lucide-react";
 import { MillerColumnsContainer } from "@/components/miller/MillerColumnsContainer";
 import { MillerBreadcrumb } from "@/components/miller/MillerBreadcrumb";
 import { NewFileModal } from "@/components/repo/NewFileModal";
 import { NewFolderModal } from "@/components/repo/NewFolderModal";
+import { ProposeDraftModal } from "@/components/pr/ProposeDraftModal";
 import { Collection, FileNode, FolderNode } from "@/types";
 import toast from "react-hot-toast";
+
+interface DraftFile {
+  path: string;
+  status: "added" | "modified" | "removed" | "renamed";
+}
+
+interface DraftState {
+  branch: string | null;
+  baseBranch: string;
+  files: DraftFile[];
+}
 
 interface RepoBrowserClientProps {
   owner: string;
@@ -21,6 +33,7 @@ interface RepoBrowserClientProps {
 export function RepoBrowserClient({
   owner,
   repo,
+  requirePR,
 }: RepoBrowserClientProps) {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -40,6 +53,59 @@ export function RepoBrowserClient({
   // Modal state for "+" button in column headers
   const [newPageFolderPath, setNewPageFolderPath] = useState<string | null>(null);
   const [newFolderParentPath, setNewFolderParentPath] = useState<string | null>(null);
+
+  // Draft branch state (only relevant when requirePR is true)
+  const [draft, setDraft] = useState<DraftState>({ branch: null, baseBranch: "main", files: [] });
+  const [showProposeModal, setShowProposeModal] = useState(false);
+  const [discarding, setDiscarding] = useState(false);
+
+  const refreshDraft = useCallback(() => {
+    return fetch(`/api/github/${owner}/${repo}/draft`)
+      .then((r) => r.json())
+      .then((data) => {
+        if (data && typeof data === "object" && "files" in data) {
+          setDraft({
+            branch: data.branch ?? null,
+            baseBranch: data.baseBranch ?? "main",
+            files: data.files ?? [],
+          });
+        }
+      })
+      .catch(() => {/* non-critical */});
+  }, [owner, repo]);
+
+  useEffect(() => {
+    if (requirePR) refreshDraft();
+  }, [requirePR, refreshDraft]);
+
+  const handleDiscardDraft = useCallback(async () => {
+    if (!confirm("Discard all pending changes? This cannot be undone.")) return;
+    setDiscarding(true);
+    try {
+      const res = await fetch(`/api/github/${owner}/${repo}/draft`, { method: "DELETE" });
+      if (!res.ok) {
+        toast.error("Failed to discard pending changes.");
+        return;
+      }
+      setDraft({ branch: null, baseBranch: draft.baseBranch, files: [] });
+      toast.success("Pending changes discarded.");
+    } finally {
+      setDiscarding(false);
+    }
+  }, [owner, repo, draft.baseBranch]);
+
+  const handlePROpened = useCallback((prNumber: number, prUrl: string) => {
+    setDraft({ branch: null, baseBranch: draft.baseBranch, files: [] });
+    setShowProposeModal(false);
+    toast.success(
+      <span>
+        PR #{prNumber} opened ·{" "}
+        <a href={prUrl} target="_blank" rel="noopener noreferrer" className="underline">
+          view on GitHub
+        </a>
+      </span>
+    );
+  }, [draft.baseBranch]);
 
   const refreshTreeAndFiles = useCallback(() => {
     return Promise.all([
@@ -162,9 +228,10 @@ export function RepoBrowserClient({
   const handleNewPageCreated = useCallback(
     (filePath: string) => {
       setNewPageFolderPath(null);
+      if (requirePR) refreshDraft();
       router.push(`/repos/${owner}/${repo}/edit/${filePath}`);
     },
-    [owner, repo, router]
+    [owner, repo, router, requirePR, refreshDraft]
   );
 
   const handleNewFolderCreated = useCallback(
@@ -183,9 +250,10 @@ export function RepoBrowserClient({
       refreshTreeAndFiles().catch(() => {
         toast.error("Created folder, but failed to refresh the repository view.");
       });
+      if (requirePR) refreshDraft();
       router.push(`/repos/${owner}/${repo}/edit/${filePath}`);
     },
-    [owner, repo, router, refreshTreeAndFiles]
+    [owner, repo, router, refreshTreeAndFiles, requirePR, refreshDraft]
   );
 
   const handleBreadcrumbNavigate = useCallback(
@@ -282,8 +350,57 @@ export function RepoBrowserClient({
     );
   }
 
+  const hasDraft = requirePR && draft.branch && draft.files.length > 0;
+
   return (
     <div className="h-full flex flex-col overflow-hidden">
+      {hasDraft && (
+        <div className="flex items-center justify-between gap-3 px-4 py-2 bg-accent/10 border-b border-accent-border text-[13px]">
+          <div className="flex items-center gap-2 min-w-0">
+            <GitPullRequest className="h-4 w-4 text-accent flex-shrink-0" />
+            <span className="text-fg">
+              <span className="font-medium">
+                {draft.files.length} pending change{draft.files.length === 1 ? "" : "s"}
+              </span>{" "}
+              <span className="text-fg-tertiary">
+                on your draft branch — not yet merged into{" "}
+                <code className="font-mono text-[11px] bg-surface border border-border px-1 py-px rounded">
+                  {draft.baseBranch}
+                </code>
+              </span>
+            </span>
+            {draft.branch && (
+              <a
+                href={`https://github.com/${owner}/${repo}/tree/${draft.branch}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1 text-fg-tertiary hover:text-fg ml-1 font-mono text-[11px] max-w-[240px] truncate"
+                title={`Draft branch: ${draft.branch}`}
+              >
+                <GitBranch className="h-3 w-3 flex-shrink-0" />
+                <span className="truncate">{draft.branch}</span>
+                <ExternalLink className="h-3 w-3 flex-shrink-0" />
+              </a>
+            )}
+          </div>
+          <div className="flex items-center gap-2 flex-shrink-0">
+            <button
+              onClick={handleDiscardDraft}
+              disabled={discarding}
+              className="px-2.5 py-1 text-[12px] text-fg-tertiary hover:text-fg disabled:opacity-50"
+              title="Delete the draft branch and all pending changes"
+            >
+              Discard
+            </button>
+            <button
+              onClick={() => setShowProposeModal(true)}
+              className="px-3 py-1 text-[12px] font-medium bg-fg text-fg-inverted rounded-md hover:bg-fg/90"
+            >
+              Propose changes
+            </button>
+          </div>
+        </div>
+      )}
       <MillerBreadcrumb
         owner={owner}
         repo={repo}
@@ -315,6 +432,7 @@ export function RepoBrowserClient({
           owner={owner}
           repo={repo}
           folderPath={newPageFolderPath}
+          requirePR={requirePR}
           onFileCreated={handleNewPageCreated}
         />
       )}
@@ -329,7 +447,21 @@ export function RepoBrowserClient({
           repo={repo}
           parentPath={newFolderParentPath}
           existingChildFolderNames={childFolderNames}
+          requirePR={requirePR}
           onCreated={handleNewFolderCreated}
+        />
+      )}
+
+      {showProposeModal && (
+        <ProposeDraftModal
+          open
+          onClose={() => setShowProposeModal(false)}
+          owner={owner}
+          repo={repo}
+          baseBranch={draft.baseBranch}
+          draftBranch={draft.branch}
+          files={draft.files}
+          onSuccess={handlePROpened}
         />
       )}
     </div>

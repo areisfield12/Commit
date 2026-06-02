@@ -88,11 +88,13 @@ export function RepoSettingsClient({
           <div className="flex items-start justify-between gap-4">
             <div>
               <p className="text-sm font-medium text-fg-secondary">
-                Require pull request for all changes
+                Pull request workflow
               </p>
               <p className="text-xs text-fg-tertiary mt-0.5">
-                When enabled, all edits must go through a pull request — direct
-                commits are disabled for this repository.
+                When enabled, every change (new folders, new files, edits, image
+                uploads) is collected on a personal draft branch. Click
+                &ldquo;Propose changes&rdquo; to open a single pull request when
+                you&apos;re ready.
               </p>
             </div>
             <div className="flex items-center gap-2 flex-shrink-0 pt-0.5">

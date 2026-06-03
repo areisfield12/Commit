@@ -13,6 +13,7 @@ import Underline from "@tiptap/extension-underline";
 import CodeBlockLowlight from "@tiptap/extension-code-block-lowlight";
 import { EditorImage } from "./EditorImage";
 import { ImageUploadPlaceholder } from "./ImageUploadPlaceholder";
+import { MdxComponent } from "./MdxComponent";
 import { createLowlight } from "lowlight";
 import javascript from "highlight.js/lib/languages/javascript";
 import typescript from "highlight.js/lib/languages/typescript";
@@ -74,6 +75,7 @@ export function Editor({
         HTMLAttributes: { class: "editor-image" },
       }),
       ImageUploadPlaceholder,
+      MdxComponent,
     ],
     content: initialHtml,
     editable: !readOnly,

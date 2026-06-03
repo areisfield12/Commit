@@ -27,6 +27,7 @@ interface FrontmatterPanelProps {
   schema: SchemaField[] | null;
   collectionLabel: string | null;
   loading?: boolean;
+  picklists?: Record<string, string[]>;
 }
 
 export function FrontmatterPanel({
@@ -35,6 +36,7 @@ export function FrontmatterPanel({
   schema,
   collectionLabel,
   loading = false,
+  picklists = {},
 }: FrontmatterPanelProps) {
   const [collapsed, setCollapsed] = useState(false);
 
@@ -90,7 +92,7 @@ export function FrontmatterPanel({
           onCollapse={() => setCollapsed(true)}
         />
         <div className="flex-1 overflow-y-auto">
-          <FrontmatterEditor data={data} onChange={onChange} />
+          <FrontmatterEditor data={data} onChange={onChange} picklists={picklists} />
         </div>
       </div>
     );
@@ -109,11 +111,12 @@ export function FrontmatterPanel({
             field={field}
             value={data[field.key] ?? field.default ?? null}
             onChange={(val) => handleFieldChange(field.key, val)}
+            picklistOptions={picklists[field.key]}
           />
         ))}
 
         {/* Show any extra frontmatter keys not in the schema */}
-        <ExtraFields data={data} schema={schema} onChange={onChange} />
+        <ExtraFields data={data} schema={schema} onChange={onChange} picklists={picklists} />
       </div>
     </div>
   );
@@ -127,6 +130,7 @@ interface FrontmatterPanelContentProps {
   schema: SchemaField[] | null;
   collectionLabel: string | null;
   loading?: boolean;
+  picklists?: Record<string, string[]>;
 }
 
 export function FrontmatterPanelContent({
@@ -134,6 +138,7 @@ export function FrontmatterPanelContent({
   onChange,
   schema,
   loading = false,
+  picklists = {},
 }: FrontmatterPanelContentProps) {
   const handleFieldChange = useCallback(
     (key: string, value: string | number | boolean | string[] | null) => {
@@ -158,7 +163,7 @@ export function FrontmatterPanelContent({
   if (!schema) {
     return (
       <div className="flex-1 overflow-y-auto">
-        <FrontmatterEditor data={data} onChange={onChange} />
+        <FrontmatterEditor data={data} onChange={onChange} picklists={picklists} />
       </div>
     );
   }
@@ -171,9 +176,10 @@ export function FrontmatterPanelContent({
           field={field}
           value={data[field.key] ?? field.default ?? null}
           onChange={(val) => handleFieldChange(field.key, val)}
+          picklistOptions={picklists[field.key]}
         />
       ))}
-      <ExtraFields data={data} schema={schema} onChange={onChange} />
+      <ExtraFields data={data} schema={schema} onChange={onChange} picklists={picklists} />
     </div>
   );
 }
@@ -219,10 +225,12 @@ function SchemaFieldInput({
   field,
   value,
   onChange,
+  picklistOptions,
 }: {
   field: SchemaField;
   value: string | number | boolean | string[] | null;
   onChange: (val: string | number | boolean | string[] | null) => void;
+  picklistOptions?: string[];
 }) {
   const label = (
     <label className="block text-xs font-medium text-fg-secondary mb-1">
@@ -230,6 +238,29 @@ function SchemaFieldInput({
       {field.required && <span className="text-red-400 ml-0.5">*</span>}
     </label>
   );
+
+  // Schema's own options take precedence; otherwise fall back to a repo-level picklist
+  const schemaHasOptions = (field.options?.length ?? 0) > 0;
+  const usePicklist =
+    !schemaHasOptions &&
+    field.type !== "toggle" &&
+    field.type !== "tags" &&
+    field.type !== "date" &&
+    picklistOptions &&
+    picklistOptions.length > 0;
+
+  if (usePicklist) {
+    return (
+      <div>
+        {label}
+        <SelectInput
+          value={asString(value)}
+          options={picklistOptions!}
+          onChange={(v) => onChange(v)}
+        />
+      </div>
+    );
+  }
 
   switch (field.type) {
     case "text":
@@ -307,10 +338,12 @@ function ExtraFields({
   data,
   schema,
   onChange,
+  picklists = {},
 }: {
   data: FrontmatterData;
   schema: SchemaField[];
   onChange: (data: FrontmatterData) => void;
+  picklists?: Record<string, string[]>;
 }) {
   const schemaKeys = new Set(schema.map((f) => f.key));
   const extraEntries = Object.entries(data).filter(([k]) => !schemaKeys.has(k));
@@ -322,19 +355,30 @@ function ExtraFields({
       <span className="text-[10px] font-semibold text-fg-tertiary uppercase tracking-wide">
         Other fields
       </span>
-      {extraEntries.map(([key, value]) => (
-        <div key={key}>
-          <label className="block text-xs font-medium text-fg-tertiary mb-1">
-            {key}
-          </label>
-          <input
-            type="text"
-            value={String(value ?? "")}
-            onChange={(e) => onChange({ ...data, [key]: e.target.value })}
-            className={inputClass}
-          />
-        </div>
-      ))}
+      {extraEntries.map(([key, value]) => {
+        const picklistOptions = picklists[key];
+        return (
+          <div key={key}>
+            <label className="block text-xs font-medium text-fg-tertiary mb-1">
+              {key}
+            </label>
+            {picklistOptions && picklistOptions.length > 0 ? (
+              <SelectInput
+                value={asString(value)}
+                options={picklistOptions}
+                onChange={(v) => onChange({ ...data, [key]: v })}
+              />
+            ) : (
+              <input
+                type="text"
+                value={String(value ?? "")}
+                onChange={(e) => onChange({ ...data, [key]: e.target.value })}
+                className={inputClass}
+              />
+            )}
+          </div>
+        );
+      })}
     </div>
   );
 }

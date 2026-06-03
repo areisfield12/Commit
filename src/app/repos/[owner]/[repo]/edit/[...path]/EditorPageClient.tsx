@@ -41,6 +41,7 @@ interface EditorPageClientProps {
   defaultBranch: string;
   imageStorageFolder: string;
   imageUrlPrefix: string;
+  frontmatterPicklists: Record<string, string[]>;
 }
 
 interface DraftFile {
@@ -71,6 +72,7 @@ export function EditorPageClient({
   defaultBranch,
   imageStorageFolder,
   imageUrlPrefix,
+  frontmatterPicklists,
 }: EditorPageClientProps) {
   // Draft branch resolution — when requirePR is true, every read/write goes
   // through the user's draft branch instead of the default branch.
@@ -605,6 +607,7 @@ export function EditorPageClient({
             schema={collectionSchema}
             collectionLabel={collectionLabel}
             frontmatterLoading={loading}
+            picklists={frontmatterPicklists}
             comments={commentList}
             onResolveComment={resolveComment}
             onReplyComment={addReply}

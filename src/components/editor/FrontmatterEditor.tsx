@@ -11,6 +11,7 @@ import {
   DateInput,
   TagsInput,
   ToggleInput,
+  SelectInput,
   asString,
   asStringArray,
   asBool,
@@ -33,9 +34,10 @@ function humanizeKey(key: string): string {
 interface FrontmatterEditorProps {
   data: FrontmatterData;
   onChange: (data: FrontmatterData) => void;
+  picklists?: Record<string, string[]>;
 }
 
-export function FrontmatterEditor({ data, onChange }: FrontmatterEditorProps) {
+export function FrontmatterEditor({ data, onChange, picklists = {} }: FrontmatterEditorProps) {
   const [newFieldKeys, setNewFieldKeys] = useState<Set<string>>(new Set());
 
   const handleValueChange = (
@@ -86,6 +88,7 @@ export function FrontmatterEditor({ data, onChange }: FrontmatterEditorProps) {
       {entries.map(([key, value]) => {
         const fieldType = detectFieldType(key, value);
         const isNew = newFieldKeys.has(key);
+        const picklistOptions = picklists[key];
 
         if (isNew) {
           return (
@@ -94,6 +97,7 @@ export function FrontmatterEditor({ data, onChange }: FrontmatterEditorProps) {
               fieldKey={key}
               fieldType={fieldType}
               value={value}
+              picklistOptions={picklistOptions}
               onRename={(newKey) => handleKeyRename(key, newKey)}
               onRemove={() => handleRemoveField(key)}
               onChange={(v) => handleValueChange(key, v)}
@@ -107,6 +111,7 @@ export function FrontmatterEditor({ data, onChange }: FrontmatterEditorProps) {
             fieldKey={key}
             fieldType={fieldType}
             value={value}
+            picklistOptions={picklistOptions}
             onRemove={() => handleRemoveField(key)}
             onChange={(v) => handleValueChange(key, v)}
           />
@@ -130,12 +135,14 @@ function EstablishedFieldRow({
   fieldKey,
   fieldType,
   value,
+  picklistOptions,
   onRemove,
   onChange,
 }: {
   fieldKey: string;
   fieldType: ReturnType<typeof detectFieldType>;
   value: string | number | boolean | string[] | null;
+  picklistOptions?: string[];
   onRemove: () => void;
   onChange: (v: string | boolean | string[]) => void;
 }) {
@@ -150,6 +157,7 @@ function EstablishedFieldRow({
         fieldKey={fieldKey}
         fieldType={fieldType}
         value={value}
+        picklistOptions={picklistOptions}
         onChange={onChange}
       />
       <button
@@ -169,6 +177,7 @@ function NewFieldRow({
   fieldKey,
   fieldType,
   value,
+  picklistOptions,
   onRename,
   onRemove,
   onChange,
@@ -176,6 +185,7 @@ function NewFieldRow({
   fieldKey: string;
   fieldType: ReturnType<typeof detectFieldType>;
   value: string | number | boolean | string[] | null;
+  picklistOptions?: string[];
   onRename: (newKey: string) => void;
   onRemove: () => void;
   onChange: (v: string | boolean | string[]) => void;
@@ -213,6 +223,7 @@ function NewFieldRow({
         fieldKey={fieldKey}
         fieldType={fieldType}
         value={value}
+        picklistOptions={picklistOptions}
         onChange={onChange}
       />
     </div>
@@ -225,13 +236,32 @@ function FieldRenderer({
   fieldKey,
   fieldType,
   value,
+  picklistOptions,
   onChange,
 }: {
   fieldKey: string;
   fieldType: ReturnType<typeof detectFieldType>;
   value: string | number | boolean | string[] | null;
+  picklistOptions?: string[];
   onChange: (v: string | boolean | string[]) => void;
 }) {
+  // Picklist overrides text-y field types only — preserve toggle/date/tags semantics
+  if (
+    picklistOptions &&
+    picklistOptions.length > 0 &&
+    fieldType !== "toggle" &&
+    fieldType !== "date" &&
+    fieldType !== "tags"
+  ) {
+    return (
+      <SelectInput
+        value={asString(value)}
+        options={picklistOptions}
+        onChange={(v) => onChange(v)}
+      />
+    );
+  }
+
   switch (fieldType) {
     case "toggle":
       return (

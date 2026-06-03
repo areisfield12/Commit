@@ -16,7 +16,7 @@ export default async function SettingsPage() {
 
   const user = await prisma.user.findUnique({
     where: { id: session.user.id },
-    select: { defaultRepo: true },
+    select: { defaultRepo: true, defaultFolder: true },
   });
 
   return (
@@ -25,7 +25,10 @@ export default async function SettingsPage() {
         <div className="max-w-2xl mx-auto px-6 py-8">
           <h1 className="text-lg font-semibold text-fg mb-6 tracking-[-0.01em]">Settings</h1>
 
-          <DefaultRepoSetting initialDefaultRepo={user?.defaultRepo ?? null} />
+          <DefaultRepoSetting
+            initialDefaultRepo={user?.defaultRepo ?? null}
+            initialDefaultFolder={user?.defaultFolder ?? null}
+          />
 
           <section className="bg-surface border border-border rounded-lg p-6 mb-4">
             <h2 className="text-[14px] font-semibold text-fg mb-4">Profile</h2>

@@ -19,6 +19,7 @@ interface RightPanelProps {
   schema: SchemaField[] | null;
   collectionLabel: string | null;
   frontmatterLoading: boolean;
+  picklists: Record<string, string[]>;
   // Comments
   comments: CommentWithAuthor[];
   onResolveComment: (commentId: string) => Promise<void>;
@@ -38,6 +39,7 @@ export function RightPanel({
   schema,
   collectionLabel,
   frontmatterLoading,
+  picklists,
   comments,
   onResolveComment,
   onReplyComment,
@@ -75,6 +77,7 @@ export function RightPanel({
                 schema={schema}
                 collectionLabel={collectionLabel}
                 loading={frontmatterLoading}
+                picklists={picklists}
               />
             </>
           )}

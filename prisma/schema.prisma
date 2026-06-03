@@ -148,6 +148,7 @@ model RepoSettings {
   imageStorageFolder String   @default("public/images")
   imageUrlPrefix     String   @default("/images")
   organizeByFolder   Boolean  @default(false)
+  frontmatterPicklists Json   @default("{}")
   createdAt          DateTime @default(now())
   updatedAt          DateTime @updatedAt
 

@@ -34,6 +34,9 @@ export default async function RepoSettingsPage({ params }: RepoSettingsPageProps
           imageStorageFolder: settings?.imageStorageFolder ?? "public/images",
           imageUrlPrefix: settings?.imageUrlPrefix ?? "/images",
           organizeByFolder: settings?.organizeByFolder ?? false,
+          frontmatterPicklists:
+            (settings?.frontmatterPicklists as Record<string, string[]> | null) ??
+            {},
         }}
       />
     </AppShell>

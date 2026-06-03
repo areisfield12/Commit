@@ -37,6 +37,10 @@ export default async function EditorPage({ params }: EditorPageProps) {
       defaultBranch={repoSettings?.defaultBranch ?? "main"}
       imageStorageFolder={repoSettings?.imageStorageFolder ?? "public/images"}
       imageUrlPrefix={repoSettings?.imageUrlPrefix ?? "/images"}
+      frontmatterPicklists={
+        (repoSettings?.frontmatterPicklists as Record<string, string[]> | null) ??
+        {}
+      }
     />
   );
 }

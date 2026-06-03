@@ -14,12 +14,15 @@ export default async function DashboardPage() {
 
   const user = await prisma.user.findUnique({
     where: { id: session.user.id },
-    select: { defaultRepo: true },
+    select: { defaultRepo: true, defaultFolder: true },
   });
 
   if (user?.defaultRepo) {
     const [owner, repo] = user.defaultRepo.split("/");
-    redirect(`/repos/${owner}/${repo}`);
+    const folder = user.defaultFolder
+      ? `?folder=${encodeURIComponent(user.defaultFolder)}`
+      : "";
+    redirect(`/repos/${owner}/${repo}${folder}`);
   }
 
   return (
